@@ -22,17 +22,37 @@ body{font-family:var(--mono);color:var(--text);user-select:none;-webkit-user-sel
   background:radial-gradient(ellipse at 70% 50%,#081523 0%,#02050a 60%,#000 100%)}
 canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 
-/* HUD — #hud-bar is full-screen layout shell (pointer-events none); #hud is bottom row (base + threat only) */
-#hud-bar{position:absolute;inset:0;display:flex;flex-direction:row;align-items:flex-end;justify-content:flex-start;
+/* HUD — #hud-bar is full-screen layout shell (pointer-events none); #hud is bottom row (threat-wave only now) */
+#hud-bar{position:absolute;inset:0;display:flex;flex-direction:row;align-items:flex-end;justify-content:flex-end;
   gap:10px;padding:0 14px 14px;padding-bottom:max(14px,env(safe-area-inset-bottom,0px));
   pointer-events:none;z-index:10;font-size:11px;letter-spacing:1.2px}
-#hud{flex:1;display:flex;gap:10px;justify-content:space-between;align-items:flex-end;min-width:0}
+#hud{flex:0 1 auto;display:flex;gap:10px;justify-content:flex-end;align-items:flex-end;min-width:0}
 .hud-panel{background:rgba(0,0,0,.4);border:1px solid var(--frame);
   box-shadow:0 0 0 1px rgba(79,195,247,.07),inset 0 0 16px rgba(79,195,247,.04);
   padding:8px 12px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border-radius:3px}
 .hud-label{color:var(--text-dim);font-size:9px;margin-bottom:3px;letter-spacing:2px}
-#drone-traffic{flex:0 0 auto;min-width:0;max-width:280px;pointer-events:none}
-#drone-traffic :is(button,a,[role=button]){pointer-events:auto}
+
+/* ═══ TOP-LEFT BASE STATUS PANEL (consolidated per spec) ════════════════════
+   Absolute-positioned at top-left so it doesn't fight #hud-bar's bottom flex.
+   Stacks: shield → reactor (ROYGB) → power/crew → repair → drones.
+   Margin added to prevent overlap with center-screen colony assets. */
+#base-status{
+  position:absolute;
+  top:calc(env(safe-area-inset-top,0px) + 10px);
+  left:calc(env(safe-area-inset-left,0px) + 10px);
+  z-index:11;
+  width:auto;
+  min-width:240px;
+  max-width:280px;
+  pointer-events:none;
+  margin-top:10px;
+  margin-left:10px;
+}
+#base-status :is(button,a,[role=button]){pointer-events:auto}
+.base-status-stack{text-align:left;display:flex;flex-direction:column;gap:4px}
+.bs-pcrew-row{display:flex;gap:8px;align-items:center;margin-top:4px}
+.bs-drones-row{display:flex;gap:6px;align-items:center;margin-top:4px;padding-top:4px;border-top:1px solid rgba(79,195,247,.12)}
+
 #hud-resources{
   position:absolute;
   top:calc(env(safe-area-inset-top,0px) + 10px);
@@ -46,17 +66,84 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
   max-width:min(200px,calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px) - 120px));
 }
 #hud-resources :is(button,a,[role=button]){pointer-events:auto}
-.drones-row{display:flex;gap:8px}
-.drone-stat{text-align:center;display:flex;flex-direction:column;gap:1px;align-items:center;min-width:46px}
-.drone-stat .num{color:var(--ally);font-size:12px;font-weight:700}
+.drones-row{display:flex;gap:6px}
+.drone-stat{text-align:center;display:flex;flex-direction:row;gap:3px;align-items:center;min-width:0}
+.drone-stat .num{color:var(--ally);font-size:11px;font-weight:700}
 .drone-stat .lbl{color:var(--text-dim);font-size:7px;letter-spacing:.8px}
-.drone-stat svg{width:13px;height:13px;opacity:.85}
-#base-status{flex:0 1 400px}
-.base-status-stack{text-align:center}
+.drone-stat svg{width:11px;height:11px;opacity:.85}
 .resources-row{display:flex;gap:12px;align-items:center}
 .res-chip{display:flex;gap:5px;align-items:center;font-size:12px;font-weight:700}
 .res-chip.salvage{color:var(--salvage)}.res-chip.tech{color:var(--tech)}
+.res-chip.power{color:#ffd24a}.res-chip.crew{color:#4fc3f7}
+/* ✓ Spec §2.5 & §3.5: chip text turns RED when undersupplied (Cap<Load / MP<Req),
+   YELLOW otherwise. The class-override here forces the new color regardless of
+   the base power/crew color above. */
+.res-chip.status-red{color:#ff5252 !important}
+.res-chip.status-yellow.power{color:#ffd24a !important}
+.res-chip.status-yellow.crew{color:#ffd24a !important}
+
+/* Status Light Styling */
+.status-light{width:8px;height:8px;border-radius:50%;margin-right:2px;transition:all 0.3s ease}
+.status-light.status-green{background:#5fe07a;box-shadow:0 0 8px #5fe07a}
+/* ✓ Spec §6: yellow is the NORMAL operating state — no pulse (would be visually noisy).
+   Red still pulses to signal undersupply/critical condition. */
+.status-light.status-yellow{background:#ffb74d;box-shadow:0 0 10px #ffb74d}
+.status-light.status-red{background:#ff5252;box-shadow:0 0 16px #ff5252;animation:pulse-red 0.6s infinite}
+
+@keyframes pulse-yellow{0%,100%{opacity:1}50%{opacity:0.5}}
+@keyframes pulse-red{0%,100%{opacity:1}50%{opacity:0.3}}
+
+/* Critical Alarm Animation */
+@keyframes crit-pulse {
+  0% {
+    background: rgba(30, 60, 100, 0.3);
+    box-shadow: inset 0 0 8px rgba(30, 60, 100, 0.5);
+  }
+  50% {
+    background: rgba(255, 60, 60, 0.4);
+    box-shadow: inset 0 0 12px rgba(255, 60, 60, 0.8), 0 0 8px rgba(255, 60, 60, 0.6);
+  }
+  100% {
+    background: rgba(30, 60, 100, 0.3);
+    box-shadow: inset 0 0 8px rgba(30, 60, 100, 0.5);
+  }
+}
+
+.crit-alarm {
+  animation: crit-pulse 0.8s ease-in-out infinite !important;
+  border: 1px solid rgba(255, 60, 60, 0.8) !important;
+}
 .res-icon{width:12px;height:12px}
+.flux-rate{color:#9fd9b0;font-weight:700;min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
+.flux-rate.zero{color:var(--text-dim);opacity:.6}
+/* Repair rate display below the shield bar */
+.repair-row{display:flex;align-items:center;justify-content:space-between;margin-top:3px;font-size:9px;letter-spacing:1.2px}
+.repair-label{color:var(--text-dim);font-weight:700}
+.repair-value{color:#9fd9b0;font-weight:700;font-variant-numeric:tabular-nums}
+.repair-value.zero{color:var(--text-dim);opacity:.6}
+/* ✓ ACTIVE REPAIRS: Yellow pulse when salvage > 0 and modules being repaired */
+.repair-value.pulse-active{
+  animation: repairActivePulse 0.8s ease-in-out infinite;
+  color:#ffd24a;
+}
+@keyframes repairActivePulse{
+  0%,100%{color:#ffd24a;text-shadow:none}
+  50%{color:#ffeb3b;text-shadow:0 0 6px rgba(255,210,74,.8)}
+}
+/* ✓ STALLED REPAIRS: Red pulse (faster, urgent) when station damaged but salvage=0 */
+.repair-value.pulse-stalled{
+  animation: repairStalledPulse 0.35s ease-in-out infinite;
+  color:#ff5252;
+}
+@keyframes repairStalledPulse{
+  0%,100%{color:#ff5252;text-shadow:none}
+  50%{color:#ff8a8a;text-shadow:0 0 8px rgba(255,82,82,.9)}
+}
+.repair-value.pulse-flash{animation:repairValuePulse .55s ease-out}
+@keyframes repairValuePulse{
+  0%{color:#b8ffcd;text-shadow:0 0 8px rgba(120,255,140,.9)}
+  100%{color:#9fd9b0;text-shadow:none}
+}
 /* Shield bar 1.5x height */
 .shield-bar-wrap{position:relative;width:100%;height:12px;background:var(--bg2);
   border:1px solid var(--frame);margin-top:4px;overflow:hidden}
@@ -111,11 +198,52 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
   padding:7px 14px;background:rgba(6,16,26,.88);border:1px solid var(--ally);
   box-shadow:0 0 12px var(--ally-glow);pointer-events:none;z-index:12;display:none;white-space:nowrap}
 #dock-prompt.visible{display:block;animation:alertPulse 1s ease-in-out infinite alternate}
-#tether-indicator{position:absolute;top:14px;left:14px;
+#tether-indicator{position:absolute;bottom:10%;left:50%;transform:translateX(-50%);
   padding:7px 12px;background:rgba(4,16,26,.92);border:1px solid var(--ally);
-  color:var(--ally);font-size:10px;letter-spacing:1.5px;box-shadow:0 0 12px var(--ally-glow);z-index:12;display:none}
+  color:var(--ally);font-size:10px;letter-spacing:1.5px;box-shadow:0 0 12px var(--ally-glow);z-index:12;display:none;
+  white-space:nowrap}
 #tether-indicator.visible{display:block}
 #tether-indicator .small{color:var(--text-dim);font-size:8px;margin-top:3px}
+
+/* ═══ TETHER STATUS BARS (shield & hull visualization) ════════════════════
+   Display live ship status while tethered at Hot Pit. Bars fill based on
+   current/max percentages. Shimmer animation triggers when below max. */
+.tether-bar-row{
+  display:flex;align-items:center;margin:6px 0;height:15px;gap:6px;
+  font-size:8px;letter-spacing:0.5px;color:var(--text-dim);
+}
+.tether-shield-bar, .tether-hull-bar{
+  flex:1;height:100%;border:1px solid rgba(79,195,247,.4);
+  border-radius:1px;overflow:hidden;position:relative;
+  background:var(--bg2);
+  --bar-fill: 0%;
+}
+.tether-shield-bar::before, .tether-hull-bar::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:var(--bar-fill);
+  background:var(--ally);
+  transition:width .15s linear;
+  box-shadow:inset 0 0 6px rgba(79,195,247,.6);
+}
+.tether-hull-bar::before{
+  background:var(--good);
+  box-shadow:inset 0 0 6px rgba(120,220,150,.6);
+}
+/* High-contrast text overlay: current / max display */
+.tether-bar-text{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  font-size:9px;font-weight:700;color:#fff;
+  text-shadow:1px 1px 2px #000,0 0 4px rgba(0,0,0,0.8);
+  z-index:2;pointer-events:none;white-space:nowrap;
+  letter-spacing:0.5px;
+}
+/* Shimmer animation: triggers when bar is actively replenishing (< 100%) */
+.tether-shield-bar.active::before, .tether-hull-bar.active::before{
+  animation:tetherShimmer 1.2s ease-in-out infinite;
+}
+@keyframes tetherShimmer{
+  0%,100%{box-shadow:inset 0 0 6px currentColor}
+  50%{box-shadow:inset 0 0 12px currentColor,0 0 8px currentColor}
+}
 
 /* BASE MENU — slides in from left */
 #base-menu{position:absolute;top:0;left:0;bottom:0;width:100%;
@@ -148,6 +276,18 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 .gcell{width:26px;height:26px;background:rgba(20,38,58,.4);border:1px solid #14283e;
   position:relative;cursor:pointer;transition:background .1s,border-color .1s}
 .gcell.disabled{background:transparent;border-color:transparent;cursor:default;pointer-events:none}
+/* ✓ MODULE DISABILITY: modules with integrity <= 0 appear grayed out and non-functional */
+.gcell.module-disabled{
+  background:rgba(20,38,58,.25) !important;
+  border-color:rgba(60,80,100,.3) !important;
+  filter:grayscale(100%) brightness(40%);
+  opacity:0.5;
+}
+.gcell.module-disabled .mod-glyph{
+  color:rgba(79,195,247,.3);
+  filter:none;
+  text-shadow:none;
+}
 .gcell.exterior-buildable{background:rgba(60,35,8,.45);border-color:rgba(255,180,60,.35)}
 .gcell.occupied{background:rgba(40,78,114,.6);border-color:var(--ally-dim)}
 .gcell.occupied.reactor-cell{background:rgba(255,200,80,.18);border-color:rgba(255,200,80,.6)}
@@ -157,11 +297,31 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 .gcell.occupied.cross-mode{opacity:.28;cursor:default}
 .gcell.hover-valid,.gcell.drag-over-valid{background:rgba(95,224,122,.38)!important;border-color:var(--good);box-shadow:inset 0 0 5px rgba(95,224,122,.4)}
 .gcell.hover-invalid,.gcell.drag-over-invalid{background:rgba(255,82,82,.38)!important;border-color:var(--bad)}
-.gcell .mod-glyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--ally)}
+.gcell .mod-glyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--ally);z-index:2}
 .gcell .mod-glyph svg{width:16px;height:16px}
 .gcell.module-anchor .mod-label{position:absolute;bottom:1px;left:1px;right:1px;
   font-size:6px;color:var(--text-dim);text-align:center;pointer-events:none;
-  text-transform:uppercase;line-height:1;white-space:nowrap;overflow:hidden}
+  text-transform:uppercase;line-height:1;white-space:nowrap;overflow:hidden;z-index:3}
+
+/* ═══ MODULE HEALTH FILL (cup metaphor) ═══════════════════════════════════
+   Fills from bottom up based on integrity %. Sits BEHIND the glyph (z-index 1).
+   Discrete color thresholds:
+     - >50%   → green  (rgba 95,224,122 @ 0.3)
+     - 20-50% → orange (rgba 255,183,77 @ 0.3)
+     - <20%   → red    (rgba 255,82,82 @ 0.3)
+   Disabled modules (integrity = 0) → empty cup, fully drained.
+   Used on .gcell (combat grid) AND .lib-item (base menu library). */
+.module-health-fill{
+  position:absolute;left:0;bottom:0;width:100%;
+  height:0%;  /* set by JS based on integrity */
+  z-index:1;
+  pointer-events:none;
+  background:rgba(95,224,122,0.3);  /* default green; JS will override */
+  transition:height 0.3s ease, background-color 0.3s ease;
+}
+.module-health-fill.health-good{background:rgba(95,224,122,0.3)}    /* >50% */
+.module-health-fill.health-warn{background:rgba(255,183,77,0.3)}     /* 20-50% */
+.module-health-fill.health-crit{background:rgba(255,82,82,0.3)}      /* <20% */
 /* Drag ghost */
 #drag-ghost{position:fixed;pointer-events:none;z-index:300;display:none;
   width:32px;height:32px;align-items:center;justify-content:center;
@@ -195,14 +355,20 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 #module-library::-webkit-scrollbar-thumb{background:var(--frame)}
 .lib-item{background:rgba(20,38,58,.35);border:1px solid var(--frame);padding:8px 5px;
   cursor:grab;display:flex;flex-direction:column;align-items:center;gap:4px;
-  transition:all .15s;position:relative;user-select:none}
+  transition:all .15s;position:relative;user-select:none;overflow:hidden}
 .lib-item:hover{border-color:var(--ally-dim);background:rgba(20,38,58,.65)}
 .lib-item.selected{border-color:var(--ally);background:rgba(79,195,247,.18);box-shadow:0 0 10px var(--ally-glow)}
 .lib-item:active{cursor:grabbing}
-.lib-item svg{width:20px;height:20px;color:var(--ally)}
+.lib-item svg{width:20px;height:20px;color:var(--ally);position:relative;z-index:2}
 .lib-item .lib-name{font-size:7px;color:var(--text);text-align:center;line-height:1.2;
-  letter-spacing:.4px;text-transform:uppercase;min-height:14px;display:flex;align-items:center}
-.lib-item .lib-cost{position:absolute;top:2px;right:2px;font-size:6px;color:var(--text-dim)}
+  letter-spacing:.4px;text-transform:uppercase;min-height:14px;display:flex;align-items:center;
+  position:relative;z-index:2}
+/* ✓ MODULE HEALTH: display % in library (or "OFF" if disabled) */
+.lib-item .lib-health{font-size:7px;color:#9be7ff;font-weight:700;
+  text-align:center;letter-spacing:.4px;min-height:10px;position:relative;z-index:2}
+.lib-item .lib-cost{position:absolute;top:2px;right:2px;font-size:6px;color:var(--text-dim);z-index:2}
+/* Disabled state for library items: gray out the icon */
+.lib-item.module-disabled svg{filter:grayscale(100%) brightness(40%);opacity:0.5}
 .menu-btn{padding:7px 12px;background:rgba(20,38,58,.5);border:1px solid var(--ally-dim);
   color:var(--ally);font-family:var(--mono);font-size:9px;letter-spacing:2px;
   text-transform:uppercase;cursor:pointer;transition:all .15s}
@@ -251,39 +417,62 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
   color:var(--ally);font-family:var(--mono);font-size:12px;font-weight:700;
   pointer-events:auto;touch-action:none;display:none;box-shadow:0 0 16px var(--ally-glow)}
 .dock-btn.visible{display:block;animation:alertPulse 1s ease-in-out infinite alternate}
-#top-right-controls{position:absolute;top:calc(env(safe-area-inset-top,0px)+10px);
-  right:calc(env(safe-area-inset-right,0px)+10px);display:flex;gap:6px;z-index:13}
-.icon-btn{width:40px;height:40px;border:1px solid var(--ally-dim);background:rgba(6,16,26,.87);
-  color:var(--ally);cursor:pointer;pointer-events:auto;display:flex;align-items:center;
-  justify-content:center;transition:all .15s;padding:0}
-.icon-btn:hover{background:rgba(79,195,247,.2);border-color:var(--ally);box-shadow:0 0 8px var(--ally-glow)}
-.icon-btn svg{width:18px;height:18px}
+#top-right-controls{
+  position:absolute;
+  top:calc(env(safe-area-inset-top,0px) + 280px);
+  left:calc(env(safe-area-inset-left,0px) + 10px);
+  transform:none;
+  display:flex;flex-direction:column;gap:8px;z-index:13;
+  pointer-events:none;
+}
+.icon-btn{
+  width:38px;height:38px;
+  border:1px solid rgba(140,160,180,0.35);
+  background:linear-gradient(180deg,rgba(12,20,30,0.55) 0%,rgba(6,12,20,0.65) 100%);
+  color:rgba(180,200,220,0.75);
+  cursor:pointer;pointer-events:auto;display:flex;align-items:center;
+  justify-content:center;transition:all .15s;padding:0;
+  border-radius:2px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.4);
+  backdrop-filter:blur(2px);
+  -webkit-backdrop-filter:blur(2px);
+}
+.icon-btn:hover{
+  background:linear-gradient(180deg,rgba(30,45,60,0.7) 0%,rgba(15,25,40,0.8) 100%);
+  border-color:rgba(180,200,220,0.6);
+  color:rgba(220,235,250,1);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.1), 0 0 6px rgba(120,160,200,0.3);
+}
+.icon-btn:active{
+  background:rgba(40,60,80,0.7);
+  transform:translateY(1px);
+}
+.icon-btn svg{width:16px;height:16px}
 @media(max-height:500px){
   #hud-bar{font-size:9px;gap:6px;padding:0 8px 8px;padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}
   .hud-panel{padding:4px 8px}
   .reactor-seg{width:22px;height:9px}.shield-bar-wrap{height:9px}
+  #top-right-controls{gap:6px}
+  .icon-btn{width:32px;height:32px}
+  .icon-btn svg{width:14px;height:14px}
 }
 @media(max-width:900px){
   #base-menu .right-pane{width:260px}
   .gcell{width:22px;height:22px}
   #module-library{grid-template-columns:repeat(3,1fr)}
-  /* Drone panel: out of bottom flex row, pinned top-left; #hud stays bottom */
+  /* BASE STATUS panel & resources: top-left and top-right pinned. */
   #hud-bar{padding:0 10px 10px;padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}
-  #drone-traffic{
-    position:absolute;
-    top:max(10px,env(safe-area-inset-top,0px));
-    left:max(10px,env(safe-area-inset-left,0px));
-    right:auto;
-    bottom:auto;
-    max-width:240px;
-    z-index:20;
+  #base-status{
+    top:max(8px,env(safe-area-inset-top,0px));
+    left:max(8px,env(safe-area-inset-left,0px));
+    min-width:200px;
+    max-width:260px;
     padding:6px 8px;
   }
   #hud{gap:8px}
-  .drones-row{gap:6px}
-  .drone-stat{min-width:46px}
-  .drone-stat .num{font-size:11px}
-  .drone-stat svg{width:12px;height:12px}
+  .drones-row{gap:5px}
+  .drone-stat .num{font-size:10px}
+  .drone-stat svg{width:10px;height:10px}
   #hud-resources{
     top:max(10px,env(safe-area-inset-top,0px));
     right:calc(env(safe-area-inset-right,0px) + 96px);
@@ -304,8 +493,9 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
     right:calc(env(safe-area-inset-right,0px) + 105px);
   }
   #top-right-controls{
-    top:calc(env(safe-area-inset-top,0px) + 12px);
-    right:calc(env(safe-area-inset-right,0px) + 12px);
+    top:50%;
+    left:calc(env(safe-area-inset-left,0px) + 8px);
+    transform:translateY(-50%);
   }
 }
 
@@ -320,29 +510,79 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 
 <!-- HUD: drone panel is sibling of #hud (not inside bottom flex) -->
 <div id="hud-bar">
-  <div class="hud-panel" id="drone-traffic">
-    <div class="hud-label">DRONE TRAFFIC</div>
-    <div class="drones-row">
-      <div class="drone-stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/><line x1="17" y1="17" x2="14" y2="14"/></svg><div class="num">24</div><div class="lbl">SALVAGE</div></div>
-      <div class="drone-stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/><line x1="17" y1="17" x2="14" y2="14"/></svg><div class="num">28</div><div class="lbl">REPAIR</div></div>
-      <div class="drone-stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/><line x1="17" y1="17" x2="14" y2="14"/></svg><div class="num">7</div><div class="lbl">DEFEND</div></div>
+  <!-- ═══ TOP-LEFT: BASE STATUS (consolidated per spec) ═════════════════════
+       Order per Combat_Space_UI.md §"Top Left – Base Status Panel":
+         1. Shield Status
+         2. Reactor Health (ROYGB)
+         3. Power & Crew  (⚡% / 👥%)
+         4. Engineering Repair Rate
+         5. Drone Traffic (placeholder)
+       The original BASE STATUS panel at the bottom is now moved up here. -->
+  <div class="hud-panel" id="base-status">
+    <div class="base-status-stack">
+      <div class="hud-label">BASE STATUS</div>
+      <!-- 1. SHIELD -->
+      <div class="shield-bar-wrap" id="hud-shield-bar"><div class="shield-bar-fill" id="hud-shield-fill"></div><div class="shield-bar-label" id="hud-shield-label">NO SHIELD</div></div>
+      <!-- 2. REACTOR HEALTH (ROYGB) -->
+      <div class="reactor-bar" id="reactor-bar"><div class="reactor-seg s5 lit"></div><div class="reactor-seg s4 lit"></div><div class="reactor-seg s3 lit"></div><div class="reactor-seg s2 lit"></div><div class="reactor-seg s1 lit"></div></div>
+      <span class="reactor-val" id="reactor-val">REACTOR 100%</span>
+      <!-- 3. POWER & CREW (chips moved here from top-right) -->
+      <div class="bs-pcrew-row">
+        <div class="res-chip power" id="hud-power-container" style="cursor:pointer;transition:transform 0.2s">
+          <div class="status-light status-yellow" id="hud-power-status"></div>
+          <div style="display:flex;gap:3px;align-items:center;font-weight:700">
+            <span style="font-size:13px">⚡</span>
+            <span id="hud-power-current">100%</span>
+            <span id="hud-power-max" style="display:none"></span>
+          </div>
+          <div style="display:none"><span id="hud-power-eff"></span><span id="hud-power-stance"></span></div>
+        </div>
+        <div class="res-chip crew" id="hud-crew-container" style="cursor:pointer;transition:transform 0.2s">
+          <div class="status-light status-yellow" id="hud-crew-status"></div>
+          <div style="display:flex;gap:3px;align-items:center;font-weight:700">
+            <span style="font-size:13px">👥</span>
+            <span id="hud-crew-current">100%</span>
+            <span id="hud-crew-max" style="display:none"></span>
+          </div>
+          <div style="display:none"><span id="hud-crew-eff"></span><span id="hud-crew-stance"></span></div>
+        </div>
+      </div>
+      <!-- 4. REPAIR RATE (moved here from bottom; was in repair-row) -->
+      <div class="repair-row"><span class="repair-label">REPAIR RATE:</span><span class="repair-value" id="hud-repair-rate">0.0/s</span></div>
+      <!-- 5. DRONE TRAFFIC (compact, folded in per spec §1.5) -->
+      <div class="bs-drones-row" id="drone-traffic-inline">
+        <span class="hud-label" style="margin:0">DRONES</span>
+        <div class="drones-row">
+          <div class="drone-stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/><line x1="17" y1="17" x2="14" y2="14"/></svg><div class="num">0</div><div class="lbl">SLV</div></div>
+          <div class="drone-stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/><line x1="17" y1="17" x2="14" y2="14"/></svg><div class="num">0</div><div class="lbl">RPR</div></div>
+          <div class="drone-stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="17" x2="10" y2="14"/><line x1="17" y1="17" x2="14" y2="14"/></svg><div class="num">0</div><div class="lbl">DEF</div></div>
+        </div>
+      </div>
     </div>
   </div>
+
+  <!-- ═══ TOP-RIGHT: RESOURCES (salvage + tech only) ═════════════════════════
+       Power & Crew chips moved to BASE STATUS. Pause/fullscreen are in
+       #top-right-controls (a separate container, mid-screen left). 
+       FLUX bar is hidden per UI polish task. -->
   <div class="hud-panel" id="hud-resources">
     <div class="resources-row">
       <div class="res-chip salvage"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L22 12 12 22 2 12Z"/></svg><span id="hud-salvage">80</span></div>
       <div class="res-chip tech"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg><span id="hud-tech">25</span></div>
     </div>
   </div>
-  <div id="hud">
-    <div class="hud-panel" id="base-status">
-      <div class="base-status-stack">
-        <div class="hud-label">BASE STATUS</div>
-        <div class="shield-bar-wrap" id="hud-shield-bar"><div class="shield-bar-fill" id="hud-shield-fill"></div><div class="shield-bar-label" id="hud-shield-label">NO SHIELD</div></div>
-        <div class="reactor-bar" id="reactor-bar"><div class="reactor-seg s5 lit"></div><div class="reactor-seg s4 lit"></div><div class="reactor-seg s3 lit"></div><div class="reactor-seg s2 lit"></div><div class="reactor-seg s1 lit"></div></div>
-        <span class="reactor-val" id="reactor-val">100%</span>
-      </div>
+  <!-- FLUX bar hidden but element retained for renderLogisticsHUD compatibility -->
+  <div class="flux-row" id="hud-flux-row" style="display:none">
+    <div class="flux-label">FLUX</div>
+    <div class="flux-bar-wrap" id="hud-flux-bar-wrap">
+      <div class="flux-bar-fill" id="hud-flux-bar-fill"></div>
+      <div class="flux-bar-pulse" id="hud-flux-bar-pulse"></div>
     </div>
+    <div class="flux-rate" id="hud-flux-rate">0.0/s</div>
+  </div>
+
+  <!-- ═══ BOTTOM-RIGHT: THREAT + WAVE (unchanged) ════════════════════════════ -->
+  <div id="hud">
     <div class="hud-panel" id="threat-wave">
     <div class="threat-row">
       <div class="threat-col"><div class="hud-label">THREAT</div>
@@ -356,7 +596,21 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 
 <div id="alerts"></div>
 <div id="dock-prompt">&#10216; E &#10217; TETHER TO HANGAR</div>
-<div id="tether-indicator"><div>&#9673; TETHERED &#8212; HOT PIT</div><div class="small">&#10216; E &#10217; DISEMBARK &#183; &#10216; Q &#10217; RELEASE</div></div>
+<div id="tether-indicator">
+  <div>&#9673; TETHERED &#8212; HOT PIT</div>
+  <!-- Ship status bars: shield (top) and hull (bottom) -->
+  <div class="tether-bar-row">
+    <div class="tether-shield-bar" id="tether-shield-bar">
+      <span class="tether-bar-text" id="tether-shield-text">60 / 60</span>
+    </div>
+  </div>
+  <div class="tether-bar-row">
+    <div class="tether-hull-bar" id="tether-hull-bar">
+      <span class="tether-bar-text" id="tether-hull-text">100 / 100</span>
+    </div>
+  </div>
+  <div class="small">&#10216; E &#10217; DISEMBARK &#183; &#10216; Q &#10217; RELEASE</div>
+</div>
 <div id="toasts"></div>
 
 <!-- Base Menu (slides from left) -->
@@ -462,11 +716,13 @@ const STATES={MAIN_MENU:'mm',PLAYING:'pl',TETHERED:'te',BASE_MENU:'bm',PAUSED:'p
 // Ship — horizontal, faces right, 50% bigger than the original
 const SHIP_THRUST=1400,SHIP_BRAKE=1800,SHIP_MAX_SPEED=420,SHIP_DRAG=0.93;
 const FIRE_COOLDOWN=0.12,BULLET_SPEED=1100,BULLET_LIFE=1.4;
-const SHIELD_MAX=60,HULL_MAX=100,SHIELD_REGEN=4,SHIELD_REGEN_TETHER=60,PICKUP_RANGE=60;
+const SHIELD_MAX=60,HULL_MAX=100,SHIELD_REGEN=4,SHIELD_REGEN_TETHER=10,PICKUP_RANGE=60;
 const REACTOR_MAX=100,COLONY_SHIELD_REGEN=2.5;
 // Turrets — 50% damage nerf
 const TURRET_RANGE=520,TURRET_TURN=4.2,TURRET_SPEED=1000,TURRET_LIFE=1.5,TURRET_DMG=0.5;
 const PD_INTERVAL=60/90,MK2_INTERVAL=60/60,MK2_GAP=0.08;
+// BALANCE: Player turret fire rate reduced 20% (cooldown × 1.25)
+const PLAYER_TURRET_FIRE_RATE_PENALTY=1.25;
 const AST={large:{r:48,hp:6,splits:'medium',count:2,drop:0},medium:{r:26,hp:3,splits:'small',count:2,drop:0},small:{r:14,hp:1,splits:null,count:0,drop:'salvage'}};
 
 // ═══ SPRITES (COMBAT_SPACE-style JPEGs; screen blend hides black matting) ═════
@@ -518,6 +774,7 @@ const game={
   salvage:0,tech:0,shipSalvage:0,shipTech:0,
   killsAst:0,killsRaider:0,sectorTime:0,
   power:100,powerMax:100,crew:45,crewMax:50,stress:30,stance:'BALANCED',
+  powerStance:'BALANCED',crewStance:'BALANCED',
   alerts:new Map(),waveTimer:102,
   keys:new Set(),mouseDown:false,mouse:{x:W*.6,y:H*.5},
   touchFire:false,joyVec:{x:0,y:0},
@@ -533,6 +790,384 @@ const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
 const dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
 const lerp=(a,b,t)=>a+(b-a)*t;
 const wrapAngle=a=>{while(a>Math.PI)a-=Math.PI*2;while(a<=-Math.PI)a+=Math.PI*2;return a;};
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIO ENGINE — Web Audio API, no external files (Thrust Audio Removed)
+// ═══════════════════════════════════════════════════════════════════════════
+const SFX = (() => {
+  let ctx = null;
+  let backgroundAlarmOsc = null, backgroundAlarmGain = null;
+  let backgroundAlarmActive = false;
+
+  function getCtx() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+
+  function unlock() { getCtx(); }
+  document.addEventListener('keydown', unlock, { once: true });
+  document.addEventListener('click', unlock, { once: true });
+  document.addEventListener('touchstart', unlock, { once: true });
+
+  function laser() {
+    try {
+      const c = getCtx(), now = c.currentTime;
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.connect(g); g.connect(c.destination);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(780, now);
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.09);
+      g.gain.setValueAtTime(0.18, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+      osc.start(now); osc.stop(now + 0.13);
+    } catch (e) { }
+  }
+
+  function explosion(size) {
+    try {
+      const c = getCtx(), now = c.currentTime;
+      const dur = size === 'large' ? 2.0 : size === 'medium' ? 1.0 : 0.5;
+      const vol = size === 'large' ? 0.85 : size === 'medium' ? 0.70 : 0.55;
+      const bufSz = 4096;
+      const noise = c.createScriptProcessor(bufSz, 1, 1);
+      noise.onaudioprocess = e => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < bufSz; i++) out[i] = (Math.random() * 2 - 1);
+      };
+      const filter = c.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = size === 'large' ? 600 : size === 'medium' ? 1200 : 2400;
+      const g = c.createGain();
+      noise.connect(filter); filter.connect(g); g.connect(c.destination);
+      g.gain.setValueAtTime(vol, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      setTimeout(() => { try { noise.disconnect(); filter.disconnect(); } catch (e) { } }, (dur + 0.05) * 1000);
+    } catch (e) { }
+  }
+
+  function hit() {
+    try {
+      const c = getCtx();
+      const now = c.currentTime;
+      const duration = 0.30;
+      const volume = 0.4;
+      const bufferSize = 2048;
+      const noise = c.createScriptProcessor(bufferSize, 1, 1);
+      noise.onaudioprocess = (e) => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          out[i] = (Math.random() * 2 - 1);
+        }
+      };
+
+      const filter = c.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 1800;
+      filter.Q.value = 2;
+
+      const gain = c.createGain();
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(c.destination);
+
+      gain.gain.setValueAtTime(volume, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+      setTimeout(() => {
+        try {
+          noise.disconnect();
+          filter.disconnect();
+          gain.disconnect();
+        } catch (e) { }
+      }, (duration + 0.05) * 1000);
+    } catch (e) {
+    }
+  }
+
+  function pickup() {
+    try {
+      const c = getCtx();
+      const now = c.currentTime;
+      const duration = 0.55;
+      const vol = 0.85;
+      const noise = c.createScriptProcessor(2048, 1, 1);
+      noise.onaudioprocess = (e) => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < 2048; i++) out[i] = (Math.random() * 2 - 1) * 0.5;
+      };
+      const filter = c.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1500, now);
+      filter.frequency.exponentialRampToValueAtTime(250, now + duration);
+      const gain = c.createGain();
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(c.destination);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.4, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      setTimeout(() => {
+        try { noise.disconnect(); filter.disconnect(); gain.disconnect(); } catch (e) { }
+      }, (duration + 0.05) * 1000);
+    } catch (e) { }
+  }
+
+  function tether(entering) {
+    try {
+      const c = getCtx(), now = c.currentTime;
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.connect(g); g.connect(c.destination);
+      osc.type = 'sine';
+      if (entering) {
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(900, now + 0.2);
+      } else {
+        osc.frequency.setValueAtTime(700, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.18);
+      }
+      g.gain.setValueAtTime(0.22, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+      osc.start(now); osc.stop(now + 0.26);
+    } catch (e) { }
+  }
+
+  function alertSound() {
+    // General red alert sound — triple beep for any threat/danger alert
+    try {
+      const ctx = getCtx();
+      const now = ctx.currentTime;
+
+      const playBeep = (startTime, frequency, duration, volume) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'triangle';
+        osc.frequency.value = frequency;
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
+      const freq = 880;
+      const dur = 0.08;
+      const gap = 0.12;
+      const vol = 0.20;
+
+      playBeep(now, freq, dur, vol);
+      playBeep(now + gap, freq, dur, vol);
+      playBeep(now + gap * 2, freq, dur, vol);
+    } catch (e) {
+    }
+  }
+
+  function raiderFire() {
+    // Enemy laser — higher pitched, more metallic than player laser
+    try {
+      const c = getCtx(), now = c.currentTime;
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.connect(g); g.connect(c.destination);
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1200, now);
+      osc.frequency.exponentialRampToValueAtTime(400, now + 0.08);
+      g.gain.setValueAtTime(0.15, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+      osc.start(now); osc.stop(now + 0.12);
+    } catch (e) { }
+  }
+
+  function raiderDestroyed() {
+    // Retooled: now a generic explosion/impact sound (used for asteroid/raider impact on colony)
+    try {
+      const c = getCtx();
+      const now = c.currentTime;
+      const duration = 6.0;
+      const vol = 0.10;
+      const noise = c.createScriptProcessor(4096, 1, 1);
+      noise.onaudioprocess = (e) => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < 4096; i++) out[i] = (Math.random() * 2 - 1);
+      };
+      const filter = c.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(2500, now);
+      filter.frequency.exponentialRampToValueAtTime(180, now + duration);
+      const gain = c.createGain();
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(c.destination);
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      filter.frequency.setValueAtTime(cutoff * 5, now);
+      filter.frequency.exponentialRampToValueAtTime(cutoff, now + dur * 3.6);
+      setTimeout(() => {
+        try { noise.disconnect(); filter.disconnect(); gain.disconnect(); } catch (e) { }
+      }, (duration + 0.05) * 1000);
+    } catch (e) { }
+  }
+
+  function turretFire() {
+    // Turret fire — quick, punchy pop (different from player laser)
+    try {
+      const c = getCtx(), now = c.currentTime;
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.connect(g); g.connect(c.destination);
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(150, now + 0.06);
+      g.gain.setValueAtTime(0.12, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+      osc.start(now); osc.stop(now + 0.09);
+    } catch (e) { }
+  }
+
+  function asteroidImpact(size) {
+    try {
+      const c = getCtx();
+      const now = c.currentTime;
+
+      // Size-based parameters (adjust to taste)
+      const dur = size === 'large' ? 8.0 : size === 'medium' ? 6.0 : 4.0;
+      const vol = size === 'large' ? 0.7 : size === 'medium' ? 0.5 : 0.35;
+      const cutoff = size === 'large' ? 400 : size === 'medium' ? 1000 : 2000;
+
+      const bufferSize = 4096;
+      const noise = c.createScriptProcessor(bufferSize, 1, 1);
+      noise.onaudioprocess = (e) => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          out[i] = Math.random() * 2 - 1;
+        }
+      };
+
+      const filter = c.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = cutoff;
+
+      const gain = c.createGain();
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(c.destination);
+      filter.frequency.setValueAtTime(cutoff * 2, now);
+      filter.frequency.exponentialRampToValueAtTime(cutoff, now + dur * 0.6);
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+      // Cleanup
+      setTimeout(() => {
+        try {
+          noise.disconnect();
+          filter.disconnect();
+          gain.disconnect();
+        } catch (e) { }
+      }, (dur + 0.05) * 1000);
+    } catch (e) { }
+  }
+
+  function raiderWeaponImpact() {
+    // Retooled: now a generic explosion/impact sound (used for asteroid/raider impact on colony)
+    try {
+      const c = getCtx();
+      const now = c.currentTime;
+      const duration = 1.5;
+      const vol = 2.60;
+      const noise = c.createScriptProcessor(4096, 1, 1);
+      noise.onaudioprocess = (e) => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < 4096; i++) out[i] = (Math.random() * 2 - 1);
+      };
+      const filter = c.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(2500, now);
+      filter.frequency.exponentialRampToValueAtTime(180, now + duration);
+      const gain = c.createGain();
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(c.destination);
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      filter.frequency.setValueAtTime(cutoff * 5, now);
+      filter.frequency.exponentialRampToValueAtTime(cutoff, now + dur * 3.6);
+      setTimeout(() => {
+        try { noise.disconnect(); filter.disconnect(); gain.disconnect(); } catch (e) { }
+      }, (duration + 0.05) * 1000);
+    } catch (e) { }
+  }
+
+  function startBackgroundAlarm() {
+    if (backgroundAlarmActive) return;
+    try {
+      const c = getCtx();
+      backgroundAlarmActive = true;
+      backgroundAlarmOsc = c.createOscillator();
+      backgroundAlarmGain = c.createGain();
+      backgroundAlarmOsc.type = 'sine';
+      backgroundAlarmOsc.frequency.value = 330; // Low F note, menacing
+      backgroundAlarmGain.gain.value = 0.06; // Very quiet, background level
+      backgroundAlarmOsc.connect(backgroundAlarmGain);
+      backgroundAlarmGain.connect(c.destination);
+      backgroundAlarmOsc.start();
+      // Apply slow pulsing: every 0.8s, dip and rise
+      const pulse = () => {
+        if (backgroundAlarmActive && backgroundAlarmGain) {
+          const now = c.currentTime;
+          backgroundAlarmGain.gain.setValueAtTime(0.06, now);
+          backgroundAlarmGain.gain.linearRampToValueAtTime(0.02, now + 0.3);
+          backgroundAlarmGain.gain.linearRampToValueAtTime(0.06, now + 0.6);
+        }
+      };
+      backgroundAlarmOsc._pulseInterval = setInterval(pulse, 800);
+    } catch (e) { backgroundAlarmActive = false; }
+  }
+
+  function stopBackgroundAlarm() {
+    if (!backgroundAlarmActive) return;
+    try {
+      const c = getCtx();
+      if (backgroundAlarmOsc._pulseInterval) clearInterval(backgroundAlarmOsc._pulseInterval);
+      backgroundAlarmGain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.2);
+      backgroundAlarmOsc.stop(c.currentTime + 0.3);
+    } catch (e) { }
+    backgroundAlarmOsc = null;
+    backgroundAlarmGain = null;
+    backgroundAlarmActive = false;
+  }
+
+  function gameOverSound() {
+    try {
+      const c = getCtx(), now = c.currentTime;
+      const osc = c.createOscillator(), g = c.createGain();
+      const vol = 0.20;
+      osc.connect(g); g.connect(c.destination);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 1.8);
+      g.gain.setValueAtTime(0.3, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 2.0);
+      osc.start(now); osc.stop(now + 2.1);
+    } catch (e) { }
+  }
+
+  function reactorCritical() {
+    try {
+      const c = getCtx(), now = c.currentTime;
+      [0, 0.22, 0.44].forEach(offset => {
+        const osc = c.createOscillator(), g = c.createGain();
+        osc.connect(g); g.connect(c.destination);
+        osc.type = 'square';
+        osc.frequency.value = 880;
+        g.gain.setValueAtTime(0.18, now + offset);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.15);
+        osc.start(now + offset); osc.stop(now + offset + 0.16);
+      });
+    } catch (e) { }
+  }
+
+  return { laser, explosion, hit, pickup, tether, alertSound, raiderFire, raiderDestroyed, turretFire, asteroidImpact, raiderWeaponImpact, startBackgroundAlarm, stopBackgroundAlarm, gameOverSound, reactorCritical };
+})();
+
 function genAstShape(r,j=0.35,n=12){const p=[];for(let i=0;i<n;i++){const a=(i/n)*Math.PI*2,rr=r*(1-j/2+Math.random()*j);p.push([Math.cos(a)*rr,Math.sin(a)*rr]);}return p;}
 function setStarfield(){game.stars=[];for(let i=0;i<220;i++)game.stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.4+0.2,a:Math.random()*.6+.2,sp:Math.random()*5+2});}
 setStarfield();
@@ -550,6 +1185,7 @@ function spawnAst(){
 }
 function splitAst(a){
   const d=AST[a.size];
+  SFX.explosion(a.size);
   if(d.splits){for(let i=0;i<d.count;i++){const ba=Math.atan2(a.vy,a.vx),off=ba+(i===0?-0.7:0.7)+rand(-0.3,0.3),mag=Math.hypot(a.vx,a.vy)*.85+rand(20,50);game.asteroids.push(newAst(a.x,a.y,d.splits,Math.cos(off)*mag,Math.sin(off)*mag));}}
   if(d.drop==='salvage')spawnPickup(a.x,a.y,'salvage',(rand(3,6))|0);
   emitExp(a.x,a.y,a.r*.6,'#ffaa55');game.killsAst++;
@@ -560,23 +1196,32 @@ function emitThr(x,y,dx,dy){game.particles.push({x:x+(Math.random()-.5)*4,y:y+(M
 function spawnRaider(opts){
   opts=opts||{};
   const isArtifact=!!opts.isArtifact||(RAIDER_ARTIFACT_SPAWN_CHANCE>0&&Math.random()<RAIDER_ARTIFACT_SPAWN_CHANCE);
-  game.raider={x:W+80,y:rand(PLAY_TOP+100,PLAY_BOTTOM-100),vx:-40,vy:0,hp:8,hpMax:8,fireCd:rand(1.5,2.5),state:'approach',stateT:0,angle:Math.PI,flash:0,isArtifact};
+  game.raider={x:W+80,y:rand(PLAY_TOP+100,PLAY_BOTTOM-100),vx:-40,vy:0,hp:8,hpMax:8,fireCd:rand(0.75,1.25),state:'approach',stateT:0,angle:Math.PI,flash:0,isArtifact};
   pushAlert('raider',isArtifact?'ARTIFACT SIGNATURE':'RAIDER DETECTED','threat',3.5);
 }
 function spawnMissile(x,y,tx,ty){const a=Math.atan2(ty-y,tx-x),sp=320;game.missiles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,angle:a,life:5,age:0});}
 function fireBullet(){
   const s=game.ship;if(!s)return;
   if(game.t-game.lastFireT<FIRE_COOLDOWN)return;game.lastFireT=game.t;
+  SFX.laser();
   game.bullets.push({x:s.x+42,y:s.y,vx:BULLET_SPEED,vy:0,life:BULLET_LIFE,age:0,angle:0});
   for(let i=0;i<3;i++)game.particles.push({x:s.x+42,y:s.y+rand(-3,3),vx:rand(180,280),vy:rand(-40,40),life:.12,age:0,size:rand(1.5,3),color:'#9be7ff'});
 }
-function fireAlliedBullet(x,y,angle){
-  game.bullets.push({x,y,vx:Math.cos(angle)*TURRET_SPEED,vy:Math.sin(angle)*TURRET_SPEED,life:TURRET_LIFE,age:0,angle,allied:true});
+function fireAlliedBullet(x,y,angle,damage){
+  // ✓ damage carried on the bullet so per-shot power efficiency is preserved.
+  // Falls back to base TURRET_DMG if caller didn't pass a value.
+  const dmg = (typeof damage === 'number') ? damage : TURRET_DMG;
+  game.bullets.push({x,y,vx:Math.cos(angle)*TURRET_SPEED,vy:Math.sin(angle)*TURRET_SPEED,life:TURRET_LIFE,age:0,angle,allied:true,damage:dmg});
   for(let i=0;i<3;i++)game.particles.push({x,y,vx:Math.cos(angle)*rand(140,240)+rand(-30,30),vy:Math.sin(angle)*rand(140,240)+rand(-30,30),life:.12,age:0,size:rand(1.5,3),color:'#9be7ff'});
 }
 
 // ═══ ALERTS / TOASTS ══════════════════════════════════════════════════════════
-function pushAlert(k,t,kind='threat',dur=3){game.alerts.set(k,{text:t,kind,until:game.t+dur});renderAlerts();}
+function pushAlert(k,t,kind='threat',dur=3){
+  const isNew = !game.alerts.has(k);
+  game.alerts.set(k,{text:t,kind,until:game.t+dur});
+  if(isNew && kind==='threat')SFX.alertSound();
+  renderAlerts();
+}
 function clearAlert(k){if(game.alerts.delete(k))renderAlerts();}
 function renderAlerts(){const el=document.getElementById('alerts');el.innerHTML='';game.alerts.forEach(a=>{const d=document.createElement('div');d.className='alert'+(a.kind==='info'?' info':'');d.textContent=a.text;el.appendChild(d);});}
 function toast(text){const el=document.getElementById('toasts'),d=document.createElement('div');d.className='toast';d.textContent=text;el.appendChild(d);setTimeout(()=>d.classList.add('fadeout'),1600);setTimeout(()=>d.remove(),2000);}
@@ -616,16 +1261,24 @@ function tryTether(){
   else toast(`Get closer to hangar (${Math.round(d-DOCK_RANGE)}m)`);
 }
 function enterTether(){
-  game.state=STATES.TETHERED;game.timeScale=0.1;
+  game.state=STATES.TETHERED;game.timeScale=0.35;
+  SFX.tether(true);
   game.ship.vx*=0.2;game.ship.vy*=0.2;
   document.getElementById('tether-indicator').classList.add('visible');
   document.getElementById('dock-prompt').classList.remove('visible');
   setFireMode('release');
-  if(game.shipSalvage>0||game.shipTech>0){game.salvage+=game.shipSalvage;game.tech+=game.shipTech;toast(`+${game.shipSalvage} SALVAGE  +${game.shipTech} TECH`);game.shipSalvage=0;game.shipTech=0;}
+  if(game.shipSalvage>0||game.shipTech>0){
+    // ✓ CRITICAL: Round resources to integers when merging pickups
+    game.salvage=Math.floor(game.salvage+game.shipSalvage);
+    game.tech=Math.floor(game.tech+game.shipTech);
+    toast(`+${game.shipSalvage} SALVAGE  +${game.shipTech} TECH`);
+    game.shipSalvage=0;game.shipTech=0;
+  }
   pushAlert('tether','TETHERED — CARGO OFFLOADING','info',1.5);
 }
 function releaseTether(){
   game.state=STATES.PLAYING;game.timeScale=1;
+  SFX.tether(false);
   document.getElementById('tether-indicator').classList.remove('visible');
   clearAlert('tether');setFireMode('fire');
   game.ship.vx=120;game.ship.vy=0;
@@ -638,27 +1291,41 @@ function openBaseMenu(){
 }
 function doDisembark(){
   document.getElementById('base-menu').classList.remove('open');
-  game.state=STATES.TETHERED;game.timeScale=0.25;
+  game.state=STATES.TETHERED;game.timeScale=0.35;
   document.getElementById('tether-indicator').classList.add('visible');
   setFireMode('release');game.selectedModule=null;renderModLib();
 }
-function openPause(){game._sb=game.state;game._sc=game.timeScale;game.state=STATES.PAUSED;game.timeScale=0;document.getElementById('pause-menu').hidden=false;}
+function openPause(){game._sb=game.state;game._sc=game.timeScale;game.state=STATES.PAUSED;game.timeScale=0;SFX.stopBackgroundAlarm();document.getElementById('pause-menu').hidden=false;}
 function closePause(){document.getElementById('pause-menu').hidden=true;game.state=game._sb||STATES.PLAYING;game.timeScale=game._sc??1;}
 function fmtTime(s){const m=(s/60)|0,ss=(s%60)|0;return`${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;}
 function gameOver(){
   game.state=STATES.GAME_OVER;game.timeScale=0;
+  SFX.stopBackgroundAlarm();
+  SFX.gameOverSound();
   document.getElementById('go-stats').innerHTML=`SECTOR TIME: ${fmtTime(game.sectorTime)}<br>ASTEROIDS: ${game.killsAst}<br>RAIDERS: ${game.killsRaider}<br>SALVAGE: ${game.salvage+game.shipSalvage}`;
   document.getElementById('game-over').hidden=false;
 }
 function startRun(){
+  SFX.stopBackgroundAlarm();
   game.state=STATES.PLAYING;game.timeScale=1;game.t=0;game.gt=0;game.sectorTime=0;
   game.ship=newShip();game.bullets=[];game.asteroids=[];game.missiles=[];game.pickups=[];game.particles=[];game.raider=null;
-  game.salvage=1000;game.tech=500;game.shipSalvage=0;game.shipTech=0;
+  // ✓ CRITICAL: Initialize salvage and tech as INTEGERS to prevent floating point drift
+  // (floating point accumulation from fractional costs would eventually cause:
+  //  game.salvage = 0.00090103... instead of expected integer, breaking resource checks)
+  game.salvage=Math.floor(250);game.tech=Math.floor(100);game.shipSalvage=0;game.shipTech=0;
   game.reactor=REACTOR_MAX;game.killsAst=0;game.killsRaider=0;
   game.alerts.clear();renderAlerts();game.waveTimer=102;
   game.raiderRespawnAt=2+Math.random()*6;
   game.modulesPlaced=[];game.colonyShield=0;game.colonyShieldMax=0;game.gridMode='INTERIOR';
-  initBaseGrid();recomputeStats();refreshBMUI();
+  game.powerStance='BALANCED';game.crewStance='BALANCED';
+  // ✓ FIX: Reset LogisticsController state (otherwise stale game.t freezes repairs after restart)
+  LogisticsController.lastMaintenanceTime=0;
+  LogisticsController.repairAccumulator=0;
+  LogisticsController.lastPulseT=-1;
+  LogisticsController.lastPulseAmount=0;
+  initBaseGrid();recomputeStats();refreshBMUI();setupHUDListeners();
+  // ✓ Initialize module integrity
+  initializeAllIntegrities();
   document.getElementById('main-menu').hidden=true;document.getElementById('game-over').hidden=true;
   document.getElementById('base-menu').classList.remove('open');setFireMode('fire');
   for(let i=0;i<3;i++)game.asteroids.push(newAst(rand(W*.55,W-80),rand(PLAY_TOP+60,PLAY_BOTTOM-60),'large',rand(-50,-15),rand(-20,20)));
@@ -692,7 +1359,8 @@ function updateShip(dt){
   const minX=getColonyEdgeX(s.y)+22;if(s.x<minX){s.x=minX;s.vx=Math.max(0,s.vx);}
   s.angle=clamp(s.vy/600,-0.35,0.35);
   s.thruster=lerp(s.thruster,thr,.18);s.braker=lerp(s.braker??0,brk,.22);
-  if(thr>.1&&Math.random()<.7)emitThr(s.x-22,s.y+(Math.random()-.5)*8,-160*thr+s.vx*.3,s.vy*.3);
+  // Thrust sound management
+    if(thr>.1&&Math.random()<.7)emitThr(s.x-22,s.y+(Math.random()-.5)*8,-160*thr+s.vx*.3,s.vy*.3);
   // Retro thruster on brake
   if(brk>.2&&Math.random()<.55){
     game.particles.push({x:s.x+32,y:s.y+(Math.random()-.5)*6,vx:80*brk+rand(-30,30),vy:rand(-30,30)+s.vy*.2,life:.18+Math.random()*.12,age:0,size:rand(1.2,2.2),color:'#9be7ff'});
@@ -700,7 +1368,31 @@ function updateShip(dt){
   }
   const regen=game.state===STATES.TETHERED?SHIELD_REGEN_TETHER:SHIELD_REGEN;
   if(game.t-s.shieldLast>1.0)s.shield=Math.min(SHIELD_MAX,s.shield+regen*dt);
-  if(game.state===STATES.TETHERED&&s.hull<HULL_MAX){const ra=12*dt;if(s.hull<25&&game.salvage<=0)s.hull=Math.min(25,s.hull+ra*.4);else if(game.salvage>0){const cost=ra*.3;if(game.salvage>=cost){s.hull=Math.min(HULL_MAX,s.hull+ra);game.salvage-=cost;}}}
+  if(game.state===STATES.TETHERED&&s.hull<HULL_MAX){
+    const ra = 32 * dt;
+    if(s.hull<25&&game.salvage<=0){
+      s.hull=Math.min(25,s.hull+ra*.4);
+    }else if(game.salvage>0){
+      // Fractional salvage costs prevent frame-rate overcharging
+      const cost = ra * 0.3;
+
+      if (game.salvage > 0) {
+
+        // Limit repair to what can actually be afforded
+        const affordableRepair = Math.min(
+          ra,
+          game.salvage / 0.3
+        );
+
+        s.hull = Math.min(
+          HULL_MAX,
+          s.hull + affordableRepair
+        );
+
+        game.salvage -= affordableRepair * 0.3;
+      }
+    }
+  }
   if(s.hitFlash>0)s.hitFlash=Math.max(0,s.hitFlash-dt*4);
   if(game.state===STATES.PLAYING&&(game.keys.has(' ')||game.mouseDown||game.touchFire))fireBullet();
   const dp=document.getElementById('dock-prompt'),db=document.getElementById('dock-btn');
@@ -711,23 +1403,161 @@ function updateShip(dt){
 }
 function damageShip(amt){
   const s=game.ship;if(!s)return;s.shieldLast=game.t;
+  SFX.hit();
   if(s.shield>0){const ab=Math.min(s.shield,amt);s.shield-=ab;amt-=ab;}
-  if(amt>0){s.hull-=amt;s.hitFlash=1;if(s.hull<=0){emitExp(s.x,s.y,30,'#ff5252');s.hull=25;s.shield=SHIELD_MAX*.5;s.x=HANGAR_X+110;s.y=HANGAR_Y;s.vx=100;s.vy=0;damageReactor(15);pushAlert('sl','SHIP RESPAWNED','threat',4);}}
+  if(amt>0){s.hull-=amt;s.hitFlash=1;if(s.hull<=0){
+    emitExp(s.x,s.y,30,'#ff5252');
+    
+    // ✓ RESOURCE-BASED RESPAWN (fixed inventory sync)
+    // IMPORTANT:
+    // UI displays:
+    //   game.salvage + game.shipSalvage
+    //   game.tech + game.shipTech
+    //
+    // The respawn logic previously only checked banked resources
+    // (game.salvage / game.tech), which caused false "insufficient"
+    // failures while the UI still showed resources available.
+
+    const respawnSalvage = 25;
+    const respawnTech = 10;
+
+    // Total available resources = banked + currently carried
+    const totalSalvage = Math.floor(game.salvage + game.shipSalvage);
+    const totalTech = Math.floor(game.tech + game.shipTech);
+
+    const hasResources =
+      totalSalvage >= respawnSalvage &&
+      totalTech >= respawnTech;
+
+    console.log(
+      `[SHIP RESPAWN] bank=${game.salvage}S/${game.tech}T | carried=${game.shipSalvage}S/${game.shipTech}T | total=${totalSalvage}S/${totalTech}T | hasResources=${hasResources}`
+    );
+
+    if (hasResources) {
+
+      // Deduct from carried resources first, then banked.
+      let salvageCostRemaining = respawnSalvage;
+      let techCostRemaining = respawnTech;
+
+      // Salvage
+      if (game.shipSalvage >= salvageCostRemaining) {
+        game.shipSalvage -= salvageCostRemaining;
+        salvageCostRemaining = 0;
+      } else {
+        salvageCostRemaining -= game.shipSalvage;
+        game.shipSalvage = 0;
+      }
+
+      if (salvageCostRemaining > 0) {
+        game.salvage = Math.max(0, game.salvage - salvageCostRemaining);
+      }
+
+      // Tech
+      if (game.shipTech >= techCostRemaining) {
+        game.shipTech -= techCostRemaining;
+        techCostRemaining = 0;
+      } else {
+        techCostRemaining -= game.shipTech;
+        game.shipTech = 0;
+      }
+
+      if (techCostRemaining > 0) {
+        game.tech = Math.max(0, game.tech - techCostRemaining);
+      }
+
+      pushAlert(
+        'sr',
+        `SHIP REPLACED: [${respawnSalvage}S, ${respawnTech}T]`,
+        'info',
+        3
+      );
+
+    } else {
+
+      // Fail-safe: reactor takes 5% damage
+      const reactorMod = game.modulesPlaced.find(m => m.type === 'REACTOR');
+      const dmg = REACTOR_MAX * 0.05;
+
+      if (reactorMod) {
+        reactorMod.integrity = Math.max(
+          0,
+          (reactorMod.integrity ?? 100) - dmg
+        );
+
+        // Sync mirror value
+        game.reactor = reactorMod.integrity;
+      } else {
+        game.reactor = Math.max(0, game.reactor - dmg);
+      }
+
+      pushAlert(
+        'sr',
+        'SHIP REPLACED: REACTOR OVERCLOCKED (5% DMG)',
+        'threat',
+        3
+      );
+
+      console.log(
+        `[SHIP RESPAWN] Reactor damaged by ${dmg.toFixed(1)}% -> reactor=${game.reactor.toFixed(1)}%`
+      );
+
+      // ✓ FIX: properly refresh power/repair systems
+      recomputeStats();
+
+      // ✓ FIX: trigger game over immediately at 0 reactor
+      if (game.reactor <= 0) {
+        setTimeout(gameOver, 100);
+      }
+    }
+
+    // Reset ship
+    s.hull = HULL_MAX;
+    s.shield = SHIELD_MAX;
+    s.x = HANGAR_X + 110;
+    s.y = HANGAR_Y;
+    s.vx = 100;
+    s.vy = 0;
+
+    // Final sync/update
+    recomputeStats();
+  }}
 }
 function pulseShield(){const el=document.getElementById('hud-shield-bar');if(!el)return;el.classList.remove('hit');void el.offsetWidth;el.classList.add('hit');}
 function damageReactor(amt){
+  // ═══ REACTOR DAMAGE — SINGLE SOURCE OF TRUTH ════════════════════════════
+  // reactorMod.integrity is the SOURCE OF TRUTH.
+  // game.reactor is a MIRROR field for display/legacy code (line 1918, 1920, 2458, etc.).
+  // Sync MUST happen at the end of this function — never write game.reactor without
+  // also updating the module (and vice versa).
   game.colonyShieldLastHit=game.t;
+  SFX.asteroidImpact();
   if(game.colonyShield>0){const ab=Math.min(game.colonyShield,amt);game.colonyShield-=ab;amt-=ab;pulseShield();if(game.colonyShield<=0&&!game.alerts.has('sd'))pushAlert('sd','COLONY SHIELDS DOWN','threat',4);}
-  if(amt>0){game.reactor=Math.max(0,game.reactor-amt);if(game.reactor<=30&&!game.alerts.has('rc'))pushAlert('rc','REACTOR DAMAGE','threat',5);if(game.reactor<=0)setTimeout(gameOver,100);}
+  if(amt>0){
+    // Always find the reactor module first — it's the source of truth.
+    const reactorMod = game.modulesPlaced.find(m => m.type === 'REACTOR');
+    if (reactorMod) {
+      if (reactorMod.integrity == null) reactorMod.integrity = 100;
+      reactorMod.integrity = Math.max(0, reactorMod.integrity - amt);
+      // SYNC: mirror to game.reactor immediately. recomputeStats() will preserve this.
+      game.reactor = reactorMod.integrity;
+      recomputeStats();   // Capacity changed → refresh power/crew calcs
+    } else {
+      // Defensive fallback: no reactor module exists (shouldn't happen in normal play).
+      game.reactor = Math.max(0, game.reactor - amt);
+    }
+    // Alert thresholds read from the (now-synced) game.reactor mirror — both are equivalent.
+    if(game.reactor<=30&&!game.alerts.has('rc')){pushAlert('rc','REACTOR DAMAGE','threat',5);SFX.reactorCritical();}
+    if(game.reactor<=0)setTimeout(gameOver,100);
+  }
 }
 function updateBullets(dt){
   for(let i=game.bullets.length-1;i>=0;i--){
     const b=game.bullets[i];b.x+=b.vx*dt;b.y+=b.vy*dt;b.age+=dt;
     if(b.age>=b.life||b.x<-40||b.x>W+40||b.y<-40||b.y>H+40){game.bullets.splice(i,1);continue;}
     let hit=false;
-    for(let j=game.asteroids.length-1;j>=0;j--){const a=game.asteroids[j];if(dist(b.x,b.y,a.x,a.y)<a.r){const dm=b.allied?TURRET_DMG:1;a.hp-=dm;a.flash=0.2;emitExp(b.x,b.y,6,'#9be7ff');if(a.hp<=0){splitAst(a);game.asteroids.splice(j,1);}hit=true;break;}}
+    for(let j=game.asteroids.length-1;j>=0;j--){const a=game.asteroids[j];if(dist(b.x,b.y,a.x,a.y)<a.r){const dm=b.allied?(b.damage!=null?b.damage:TURRET_DMG):1;a.hp-=dm;a.flash=0.2;emitExp(b.x,b.y,6,'#9be7ff');if(a.hp<=0){splitAst(a);game.asteroids.splice(j,1);}hit=true;break;}}
     if(hit){game.bullets.splice(i,1);continue;}
-    if(game.raider){const r=game.raider;if(dist(b.x,b.y,r.x,r.y)<26){const dm=b.allied?TURRET_DMG:1;r.hp-=dm;r.flash=0.2;emitExp(b.x,b.y,8,'#ffcc55');if(r.hp<=0){emitExp(r.x,r.y,30,'#ff6b3d');for(let k=0;k<3;k++)spawnPickup(r.x+rand(-12,12),r.y+rand(-12,12),'tech',(rand(4,7))|0);game.raider=null;game.killsRaider++;game.raiderRespawnAt=game.gt+rand(2,5);clearAlert('raider');pushAlert('rd','RAIDER DESTROYED','info',2.5);}game.bullets.splice(i,1);continue;}}
+    if(game.raider){const r=game.raider;if(dist(b.x,b.y,r.x,r.y)<26){const dm=b.allied?(b.damage!=null?b.damage:TURRET_DMG):1;r.hp-=dm;r.flash=0.2;emitExp(b.x,b.y,8,'#ffcc55');if(r.hp<=0){SFX.raiderDestroyed();emitExp(r.x,r.y,30,'#ff6b3d');for(let k=0;k<3;k++)spawnPickup(r.x+rand(-12,12),r.y+rand(-12,12),'tech',(rand(4,7))|0);game.raider=null;game.killsRaider++;game.raiderRespawnAt=game.gt+rand(2,5);clearAlert('raider');pushAlert('rd','RAIDER DESTROYED','info',2.5);}game.bullets.splice(i,1);continue;}}
     for(let m=game.missiles.length-1;m>=0;m--){const ms=game.missiles[m];if(dist(b.x,b.y,ms.x,ms.y)<10){emitExp(ms.x,ms.y,10,'#ff7755');game.missiles.splice(m,1);game.bullets.splice(i,1);hit=true;break;}}
     if(hit)continue;
 
@@ -746,7 +1576,7 @@ function updateAsteroids(dt) {
 
     // --- PLAYER COLLISION ---
     if (game.ship && dist(a.x, a.y, game.ship.x, game.ship.y) < a.r + 22) {
-      damageShip(8 + a.r * .15);
+      damageShip(16 + a.r * .3);
       a.flash = 0.2; // Visual feedback on the rock
 
       // TRIGGER DUST: Ship hitting a rock should definitely kick up debris
@@ -774,15 +1604,25 @@ function updateAsteroids(dt) {
     // --- COLONY/REACTOR IMPACT ---
     const ex = getColonyEdgeX(a.y);
     if (a.x < ex + a.r * .4 && isFinite(ex)) {
-      damageReactor(a.size === 'large' ? 12 : a.size === 'medium' ? 6 : 3);
-      emitExp(a.x, a.y, a.r * .8, '#ff5252');
+      const hitDamage = a.size === 'large' ? 24 : a.size === 'medium' ? 12 : 6;
+      SFX.asteroidImpact();
 
-      // Even more dust on colony impact
-      if (typeof spawnAsteroidDust === 'function') {
-        for (let k = 0; k < 3; k++) spawnAsteroidDust(a.x, a.y);
+      if (game.colonyShield > 0) {
+        // Shield absorbs the hit — no structural damage to modules
+        game.colonyShield = Math.max(0, game.colonyShield - hitDamage);
+        game.colonyShieldLastHit = game.t;
+        emitExp(a.x, a.y, a.r * .8, '#4fc3f7');  // Blue shield-impact flash
+        pushAlert('cf', 'SHIELD ABSORBING HIT', 'threat', 1.5);
+      } else {
+        // Shields down — apply structural damage
+        const damageReport = applyColonyHit(hitDamage);
+        emitExp(a.x, a.y, a.r * .8, '#ff5252');
+        if (typeof spawnAsteroidDust === 'function') {
+          for (let k = 0; k < 3; k++) spawnAsteroidDust(a.x, a.y);
+        }
+        pushAlert('cf', 'COLONY TAKING FIRE', 'threat', 2);
       }
 
-      pushAlert('cf', 'COLONY TAKING FIRE', 'threat', 2);
       game.asteroids.splice(i, 1);
       continue;
     }
@@ -796,7 +1636,7 @@ function updateRaider(dt){
   const r=game.raider;r.stateT+=dt;if(r.flash>0)r.flash-=dt;
   if(r.state==='approach'){r.vx=-85;r.vy=Math.sin(game.gt*.8)*30;if(r.x<1050){r.state='circle';r.stateT=0;}}
   else if(r.state==='circle'){r.vx=Math.cos(game.gt*.6)*30-10;r.vy=Math.sin(game.gt*.9)*70;r.fireCd-=dt;
-    if(r.fireCd<=0&&game.ship){const tgt=Math.random()<.5?game.ship:{x:HANGAR_X+rand(-80,80),y:HANGAR_Y+rand(-80,80)};spawnMissile(r.x-18,r.y,tgt.x,tgt.y);r.fireCd=rand(1.8,3.2);}
+    if(r.fireCd<=0&&game.ship){const tgt=Math.random()<.5?game.ship:{x:HANGAR_X+rand(-80,80),y:HANGAR_Y+rand(-80,80)};spawnMissile(r.x-18,r.y,tgt.x,tgt.y);SFX.raiderFire();r.fireCd=rand(0.9,1.6);}
     if(r.hp<r.hpMax*.3){r.state='retreat';r.stateT=0;}}
   else{r.vx=120;r.vy=Math.sin(game.gt)*40;if(r.x>W+60){game.raider=null;game.raiderRespawnAt=game.gt+rand(20,35);clearAlert('raider');}}
   r.x+=r.vx*dt;r.y+=r.vy*dt;
@@ -813,8 +1653,24 @@ function updateMissiles(dt){
     const m=game.missiles[i];m.x+=m.vx*dt;m.y+=m.vy*dt;m.age+=dt;
     if(Math.random()<.6)game.particles.push({x:m.x-Math.cos(m.angle)*8,y:m.y-Math.sin(m.angle)*8,vx:rand(-20,20),vy:rand(-20,20),life:.4,age:0,size:rand(1,2),color:'#ff8855'});
     if(m.age>=m.life||m.x<-40||m.x>W+40||m.y<-40||m.y>H+40){game.missiles.splice(i,1);continue;}
-    if(game.ship&&dist(m.x,m.y,game.ship.x,game.ship.y)<16){emitExp(m.x,m.y,14,'#ff6655');damageShip(18);game.missiles.splice(i,1);continue;}
-    const ex=getColonyEdgeX(m.y);if(isFinite(ex)&&m.x<ex){emitExp(m.x,m.y,20,'#ff5252');damageReactor(8);pushAlert('cf','COLONY TAKING FIRE','threat',2);game.missiles.splice(i,1);continue;}
+    if(game.ship&&dist(m.x,m.y,game.ship.x,game.ship.y)<16){emitExp(m.x,m.y,14,'#ff6655');damageShip(36);game.missiles.splice(i,1);continue;}
+    const ex=getColonyEdgeX(m.y);
+    if(isFinite(ex)&&m.x<ex){
+      const hitDamage = 16;
+      SFX.raiderWeaponImpact();
+      if (game.colonyShield > 0) {
+        game.colonyShield = Math.max(0, game.colonyShield - hitDamage);
+        game.colonyShieldLastHit = game.t;
+        emitExp(m.x, m.y, 20, '#4fc3f7');
+        pushAlert('cf', 'SHIELD ABSORBING HIT', 'threat', 1.5);
+      } else {
+        applyColonyHit(hitDamage);
+        emitExp(m.x, m.y, 20, '#ff5252');
+        pushAlert('cf', 'COLONY TAKING FIRE', 'threat', 2);
+      }
+      game.missiles.splice(i, 1);
+      continue;
+    }
   }
 }
 function updatePickups(dt){
@@ -823,7 +1679,7 @@ function updatePickups(dt){
     const p=game.pickups[i];p.age+=dt;p.pulse+=dt*4;p.vx*=Math.pow(.96,dt*60);p.vy*=Math.pow(.96,dt*60);p.x+=p.vx*dt;p.y+=p.vy*dt;
     const d=dist(p.x,p.y,game.ship.x,game.ship.y);
     if(d<PICKUP_RANGE*2.4){const ax=game.ship.x-p.x,ay=game.ship.y-p.y,am=Math.hypot(ax,ay)||1,pull=lerp(40,600,1-d/(PICKUP_RANGE*2.4));p.vx+=ax/am*pull*dt;p.vy+=ay/am*pull*dt;}
-    if(d<PICKUP_RANGE){if(p.kind==='salvage')game.shipSalvage+=p.amt;else game.shipTech+=p.amt;for(let k=0;k<6;k++)game.particles.push({x:p.x,y:p.y,vx:rand(-80,80),vy:rand(-80,80),life:.4,age:0,size:rand(1,2),color:p.kind==='salvage'?'#ffd54f':'#4dd0e1'});game.pickups.splice(i,1);continue;}
+    if(d<PICKUP_RANGE){if(p.kind==='salvage')game.shipSalvage+=p.amt;else game.shipTech+=p.amt;SFX.pickup();for(let k=0;k<6;k++)game.particles.push({x:p.x,y:p.y,vx:rand(-80,80),vy:rand(-80,80),life:.4,age:0,size:rand(1,2),color:p.kind==='salvage'?'#ffd54f':'#4dd0e1'});game.pickups.splice(i,1);continue;}
     if(p.age>p.life)game.pickups.splice(i,1);
   }
 }
@@ -871,6 +1727,16 @@ function updateExteriorModules(dt) {
 function updateTurrets(dt) {
   if (game.state !== STATES.PLAYING && game.state !== STATES.TETHERED) return;
 
+  // ✓ EFFECTIVENESS: Read the per-frame snapshot once instead of recomputing
+  // for each turret. Eight turrets firing no longer means eight modulesPlaced scans.
+  const eff = LogisticsController.getEffectiveness();
+  const crewEfficiency = eff.crewEff;   // 0.1 to 1.0
+  const powerEfficiency = eff.powerEff; // 0.1 to 1.0
+  // Cooldown multiplier: at crewEff=1.0 → 1.0× (no penalty),
+  // at crewEff=0.5 → 2.0× (doubles, per spec example),
+  // at crewEff=0.1 → 10× (clamp-floor of crewEff prevents divide-by-zero).
+  const crewCooldownMult = 1 / crewEfficiency;
+
   for (const mod of game.modulesPlaced) {
     if (mod.def.category !== 'EXTERIOR') continue;
 
@@ -902,18 +1768,28 @@ function updateTurrets(dt) {
       const wA = Math.atan2((ty + tvy * tof) - mod._sp.y, (tx + tvx * tof) - mod._sp.x);
 
       mod._aim += clamp(wrapAngle(wA - mod._aim), -TURRET_TURN * dt, TURRET_TURN * dt);
+
       mod._cd = Math.max(0, mod._cd - dt);
 
       if (Math.abs(wrapAngle(wA - mod._aim)) < 0.18 && mod._cd <= 0) {
+        // ✓ COOLDOWN: base × balance penalty × crew penalty (1/eff)
+        // At full crew with no stance, cooldown = base × 1.25 (the 20% nerf).
+        const fireRatePenalty = PLAYER_TURRET_FIRE_RATE_PENALTY;
+        // ✓ BULLET DAMAGE: scaled by powerEfficiency (low power = weak shots)
+        const bulletDamage = TURRET_DMG * powerEfficiency;
+
         if (mod.type === 'POINT_DEFENSE') {
-          fireAlliedBullet(mod._sp.x + Math.cos(mod._aim) * 12, mod._sp.y + Math.sin(mod._aim) * 12, mod._aim);
-          mod._flash = 0.12; mod._cd = PD_INTERVAL;
+          fireAlliedBullet(mod._sp.x + Math.cos(mod._aim) * 12, mod._sp.y + Math.sin(mod._aim) * 12, mod._aim, bulletDamage);
+          SFX.turretFire();
+          mod._flash = 0.12;
+          mod._cd = PD_INTERVAL * fireRatePenalty * crewCooldownMult;
         } else {
           const ox = -Math.sin(mod._aim) * 2.5, oy = Math.cos(mod._aim) * 2.5, side = mod._mk2 === 0 ? -1 : 1;
-          fireAlliedBullet(mod._sp.x + Math.cos(mod._aim) * 12 + ox * side, mod._sp.y + Math.sin(mod._aim) * 12 + oy * side, mod._aim);
+          fireAlliedBullet(mod._sp.x + Math.cos(mod._aim) * 12 + ox * side, mod._sp.y + Math.sin(mod._aim) * 12 + oy * side, mod._aim, bulletDamage);
+          SFX.turretFire();
           mod._flash = 0.12;
-          if (mod._mk2 === 0) { mod._cd = MK2_GAP; mod._mk2 = 1; }
-          else { mod._cd = MK2_INTERVAL - MK2_GAP; mod._mk2 = 0; }
+          if (mod._mk2 === 0) { mod._cd = MK2_GAP * fireRatePenalty * crewCooldownMult; mod._mk2 = 1; }
+          else { mod._cd = (MK2_INTERVAL - MK2_GAP) * fireRatePenalty * crewCooldownMult; mod._mk2 = 0; }
         }
       }
     }
@@ -1320,28 +2196,31 @@ function drawShip() {
   ctx.restore();
 
   // Health & shield bars - 1.5× height, with text-stroke for readability
-  ctx.save();
-  const bx = s.x - 28, by = s.y - 52;
-  ctx.fillStyle = 'rgba(0,0,0,0.78)';
-  ctx.fillRect(bx - 1, by - 1, 58, 13);
-  ctx.fillRect(bx - 1, by + 12, 58, 13);
-  ctx.fillStyle = '#5fe07a';
-  ctx.fillRect(bx, by, 56 * (s.hull / HULL_MAX), 12);
-  ctx.fillStyle = '#4fc3f7';
-  ctx.fillRect(bx, by + 13, 56 * (s.shield / SHIELD_MAX), 12);
+  // HIDDEN when tethered: bars are shown in the tether modal instead.
+  if (game.state !== STATES.TETHERED) {
+    ctx.save();
+    const bx = s.x - 28, by = s.y - 52;
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(bx - 1, by - 1, 58, 13);
+    ctx.fillRect(bx - 1, by + 12, 58, 13);
+    ctx.fillStyle = '#5fe07a';
+    ctx.fillRect(bx, by, 56 * (s.hull / HULL_MAX), 12);
+    ctx.fillStyle = '#4fc3f7';
+    ctx.fillRect(bx, by + 13, 56 * (s.shield / SHIELD_MAX), 12);
 
-  ctx.font = 'bold 7px monospace';
-  ctx.textAlign = 'center';
-  ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-  ctx.lineWidth = 2.8;
-  ctx.strokeText(`HP ${Math.ceil(s.hull)}`, s.x, by + 10);
-  ctx.fillStyle = '#fff';
-  ctx.fillText(`HP ${Math.ceil(s.hull)}`, s.x, by + 10);
+    ctx.font = 'bold 7px monospace';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
+    ctx.lineWidth = 2.8;
+    ctx.strokeText(`HP ${Math.ceil(s.hull)}`, s.x, by + 10);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`HP ${Math.ceil(s.hull)}`, s.x, by + 10);
 
-  ctx.strokeText(`SH ${Math.ceil(s.shield)}`, s.x, by + 23);
-  ctx.fillStyle = '#9be7ff';
-  ctx.fillText(`SH ${Math.ceil(s.shield)}`, s.x, by + 23);
-  ctx.restore();
+    ctx.strokeText(`SH ${Math.ceil(s.shield)}`, s.x, by + 23);
+    ctx.fillStyle = '#9be7ff';
+    ctx.fillText(`SH ${Math.ceil(s.shield)}`, s.x, by + 23);
+    ctx.restore();
+  }
 }
 function drawAsteroids() {
   const G = window.GAME_SPRITES || {};
@@ -1588,12 +2467,34 @@ function updateHUD(){
   if(game.colonyShieldMax>0){sf.style.width=(game.colonyShield/game.colonyShieldMax*100)+'%';sl.textContent=`SHIELD ${Math.floor(game.colonyShield)}/${Math.floor(game.colonyShieldMax)}`;}
   else{sf.style.width='0%';sl.textContent='NO SHIELD';}
   document.querySelectorAll('#reactor-bar .reactor-seg').forEach((seg,i)=>{const mn=(4-i)*20;if(game.reactor>mn)seg.classList.add('lit');else seg.classList.remove('lit');});
-  document.getElementById('reactor-val').textContent=Math.ceil(game.reactor)+'%';
-  let threat=0;if(game.raider)threat+=2;threat+=Math.min(3,game.asteroids.length/3);if(game.reactor<50)threat+=2;
+  document.getElementById('reactor-val').textContent='REACTOR '+Math.ceil(game.reactor)+'%';
+  let threat = 0;
+  
+  // Raiders: +1 per active raider (future-proof array check + single asset fallback)
+  if (game.raiders && game.raiders.length > 0) {
+    threat += game.raiders.length * 1.0;
+  } else if (game.raider) {
+    threat += 1.0;
+  }
+  
+  // Asteroids: Smooth scaling up to a max of 3 units (caps at 15 asteroids instead of 9)
+  threat += Math.min(3, game.asteroids.length / 5);
+  
+  // Reactor Crisis: +1 if struggling under 50%, escalates to +2 if critical under 20%
+  if (game.reactor < 20) {
+    threat += 2;
+  } else if (game.reactor < 50) {
+    threat += 1;
+  }
   const tp=clamp(Math.round(threat),1,5),tl=document.getElementById('threat-label');
   if(tp<=1){tl.textContent='LOW';tl.style.color='#5fe07a';}else if(tp<=3){tl.textContent='MED';tl.style.color='#ffb74d';}else{tl.textContent='HIGH';tl.style.color='#ff3d3d';}
   const tb=document.getElementById('threat-bar');tb.innerHTML='';
   for(let i=0;i<5;i++){const p=document.createElement('div');p.className='threat-pip'+(i<tp?' lit':'');tb.appendChild(p);}
+  // Background alarm for high threat
+  if(game.state===STATES.PLAYING||game.state===STATES.TETHERED){
+    if(tp>=4){SFX.startBackgroundAlarm();}
+    else{SFX.stopBackgroundAlarm();}
+  }
   const wt=document.getElementById('wave-time');
   if(game.state===STATES.BASE_MENU||game.state===STATES.PAUSED)wt.textContent='PAUSED';
   else wt.textContent=fmtTime(Math.max(0,game.waveTimer));
@@ -1680,6 +2581,35 @@ const GLYPH={
 };
 
 // ═══ BASE GRID ════════════════════════════════════════════════════════════════
+// Find an open anchor (r,c) where the module's shape fits in the asteroid cavity
+// and doesn't overlap any existing modules. Returns null if no space.
+// Iterates positions in order of distance from reactor center (6,6) so starter
+// modules cluster around the reactor instead of stranding at the edges.
+function findSpotForModule(typeKey) {
+  const def = MODULE_TYPES[typeKey];
+  if (!def) return null;
+  const mask = def.category === 'EXTERIOR' ? EXTERIOR_RING : ASTEROID_CAVITY;
+  // Build list of candidate anchors sorted by manhattan distance from reactor center.
+  const candidates = [];
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      candidates.push({ r, c, d: Math.abs(r - 6) + Math.abs(c - 6) });
+    }
+  }
+  candidates.sort((a, b) => a.d - b.d);
+  for (const { r, c } of candidates) {
+    const cells = def.cells.map(([dc, dr]) => [r + dr, c + dc]);
+    let ok = true;
+    for (const [rr, cc] of cells) {
+      if (rr < 0 || rr >= GRID_ROWS || cc < 0 || cc >= GRID_COLS) { ok = false; break; }
+      if (!mask[rr][cc]) { ok = false; break; }
+      if (game.baseGrid[rr][cc].occupiedBy) { ok = false; break; }
+    }
+    if (ok) return { r, c };
+  }
+  return null;
+}
+
 function initBaseGrid(){
   const grid=document.getElementById('base-grid');grid.innerHTML='';
   grid.style.gridTemplateColumns=`repeat(${GRID_COLS},26px)`;grid.style.gridTemplateRows=`repeat(${GRID_ROWS},26px)`;
@@ -1692,12 +2622,21 @@ function initBaseGrid(){
     grid.appendChild(cell);row.push({el:cell,occupiedBy:null});}game.baseGrid.push(row);}
   placeModule('REACTOR',5,5,true);
   placeAtSlot('POINT_DEFENSE','top',4);placeAtSlot('POINT_DEFENSE','bottom',4);placeAtSlot('SHIELD_GEN','top',3);
+  // ✓ STARTER MODULES (FREE): 1 ENGINEERING + 1 MED_BAY + 2 HABITATs.
+  // Placed without cost-check so they always appear regardless of resource state.
+  // Order matters: ENGINEERING first so repair system is online before HABITATs (which feed crew capacity)
+  // get placed at outer positions. Skip silently if no space (defensive against future layout changes).
+  const STARTER_MODULES = ['ENGINEERING', 'MED_BAY', 'HABITAT', 'HABITAT'];
+  for (const typeKey of STARTER_MODULES) {
+    const spot = findSpotForModule(typeKey);
+    if (spot) placeModule(typeKey, spot.r, spot.c, true);
+  }
   applyGridView();renderModLib();
 }
 function placeAtSlot(typeKey,side,idx){const slot=EXTERIOR_SLOTS.find(s=>s.side===side&&s.idx===idx);if(!slot)return;if(game.baseGrid[slot.r][slot.c].occupiedBy)return;placeModule(typeKey,slot.r,slot.c,true);}
 function placeModule(typeKey,anchorR,anchorC,silent=false){
   const def=MODULE_TYPES[typeKey];
-  const mod={type:typeKey,def,anchorR,anchorC,cells:def.cells.map(([dc,dr])=>[anchorR+dr,anchorC+dc]),level:1};
+  const mod={type:typeKey,def,anchorR,anchorC,cells:def.cells.map(([dc,dr])=>[anchorR+dr,anchorC+dc]),level:1,integrity:100};
   game.modulesPlaced.push(mod);
   const isR=typeKey==='REACTOR',isE=def.category==='EXTERIOR';
   for(const [r,c] of mod.cells){const cell=game.baseGrid[r][c];cell.occupiedBy=mod;cell.el.classList.add('occupied');if(isR)cell.el.classList.add('reactor-cell');if(isE)cell.el.classList.add('ext-mod');}
@@ -1705,19 +2644,181 @@ function placeModule(typeKey,anchorR,anchorC,silent=false){
   for(const [r,c] of mod.cells){if(r<mnR)mnR=r;if(r>mxR)mxR=r;if(c<mnC)mnC=c;if(c>mxC)mxC=c;}
   const midR=Math.round((mnR+mxR)/2),midC=Math.round((mnC+mxC)/2);
   let gR=midR,gC=midC;if(!mod.cells.some(([r,c])=>r===gR&&c===gC)){gR=anchorR;gC=anchorC;}
-  const gEl=game.baseGrid[gR][gC].el;const gl=document.createElement('div');gl.className='mod-glyph';gl.innerHTML=GLYPH[def.glyph]||'';gEl.appendChild(gl);
+  const gEl=game.baseGrid[gR][gC].el;
+  // ✓ HEALTH FILL: add cup-fill div BEFORE glyph (z-index ordering via CSS)
+  // Stored on mod.healthFillEls so updateHealthBars() can find them across all cells.
+  mod.healthFillEls = [];
+  for(const [r,c] of mod.cells){
+    const cell = game.baseGrid[r][c];
+    const fill = document.createElement('div');
+    fill.className = 'module-health-fill health-good';
+    fill.style.height = '100%';
+    cell.el.appendChild(fill);
+    mod.healthFillEls.push(fill);
+  }
+  // Now add the glyph (will sit above the fill due to z-index)
+  const gl=document.createElement('div');gl.className='mod-glyph';gl.innerHTML=GLYPH[def.glyph]||'';gEl.appendChild(gl);
   if(mod.cells.length>1||isR){const bc2=mod.cells.filter(([r])=>r===mxR);bc2.sort((a,b)=>a[1]-b[1]);const mb=bc2[Math.floor(bc2.length/2)];const lc=game.baseGrid[mb[0]][mb[1]].el;lc.classList.add('module-anchor');const lb=document.createElement('div');lb.className='mod-label';lb.textContent=def.short;lc.appendChild(lb);}
   if(!silent){game.salvage-=def.salvageCost;game.tech-=def.techCost;}
   recomputeStats();
 }
+// ═══ REACTOR POWER CURVE ═══════════════════════════════════════════════════════
+// Maps reactor integrity (0-100) to power output scalar (0.10-1.00).
+// Designed per spec: gentle initial decline, steep drop below 50% integrity, 10% emergency floor.
+//   100% → 1.00  (full output)
+//    75% → 0.90  (small loss — buffer zone)
+//    50% → 0.50  (significant loss — clearly damaged)
+//    25% → 0.30  (severe)
+//    10% → 0.10  (emergency power floor — never lower)
+//     0% → 0.10  (still emergency floor; reactor module can hit 0 integrity but power can't go to zero)
+function getReactorPowerScalar(integrity) {
+  // Maps reactor integrity (0–100) to a power output multiplier.
+  // Linear per the spec: Capacity = Baseline × (Reactor_health / Reactor_max_health).
+  // Floor at 0.10 so a barely-alive reactor still trickles power (avoids hard cliff).
+  const ratio = Math.max(0, Math.min(1, integrity / 100));
+  return Math.max(0.10, ratio);
+}
+
+// ✓ EFFECTIVENESS CURVE (shared by power & crew).
+// Maps a supply/demand ratio (0..1, with 1 = at/above demand) to an effectiveness multiplier.
+// Shape: gentle degradation from 1.0 down to ~0.5 ratio, then steep drop to zero.
+// Reference points from spec:
+//   ratio 1.00 → eff 1.00
+//   ratio 0.80 → eff 0.95
+//   ratio 0.60 → eff 0.85
+//   ratio 0.50 → eff 0.70
+//   ratio 0.40 → eff 0.50
+//   ratio 0.25 → eff 0.25
+//   ratio 0.00 → eff 0.00
+// Approximation: f(r) = clamp(r * (2 - r), 0, 1)   ← matches reference points within ~5%
+function getEffectivenessFromRatio(ratio) {
+  const r = Math.max(0, Math.min(1, ratio));
+  return Math.max(0, Math.min(1, r * (2 - r)));
+}
+
 function recomputeStats(){
-  let pP=0,cP=0,pU=0,shC=0;
-  for(const m of game.modulesPlaced){const d=m.def;if(d.powerProvides)pP+=d.powerProvides*(1+(m.level-1)*.4);if(d.crewProvides)cP+=d.crewProvides;if(d.shieldProvides)shC+=d.shieldProvides*(1+(m.level-1)*.5);if(d.powerCost)pU+=d.powerCost*(1+(m.level-1)*.1);}
-  game.powerMax=Math.max(100,pP);game.power=Math.max(0,game.powerMax-pU);
-  game.crewMax=50+cP*.6;game.crew=clamp(40+cP,0,game.crewMax);
-  const prev=game.colonyShieldMax;game.colonyShieldMax=shC;
-  if(shC>prev)game.colonyShield=Math.min(shC,game.colonyShield+(shC-prev));else game.colonyShield=Math.min(game.colonyShield,shC);
-  game.stress=clamp(100-(game.reactor/REACTOR_MAX)*70+(pU>game.powerMax?.4:0)*30,0,100);
+  // ═══ NEW POWER & CREW MODEL ═══════════════════════════════════════════════
+  // Baseline = theoretical max if every module were at 100% integrity (placement constraint).
+  // Capacity = actual max right now after damage (combat performance).
+  // Load     = sum of power costs of all active modules.
+  // Manpower = actual available crew right now (sum of hab_baseline × hab_health_ratio).
+  // RequiredCrew = sum of crew requirements of all active modules.
+
+  let powerBaseline = 0;   // Σ powerProvides at 100% integrity (placement constraint)
+  let powerCapacity = 0;   // Σ powerProvides × current scalar (actual output now)
+  let powerLoad    = 0;    // Σ powerCost of all active modules
+  let crewBaseline = 0;    // Σ crewProvides at 100% integrity (placement constraint)
+  let crewManpower = 0;    // Σ crewProvides × current hab health ratio (actual crew now)
+  let crewRequired = 0;    // Σ crewReq of all active modules
+  let shC = 0;             // shield capacity
+
+  // Find the reactor for the curve scalar (one expected; default 100% if missing).
+  let reactorIntegrity = 100;
+  for (const m of game.modulesPlaced) {
+    if (m.type === 'REACTOR') { reactorIntegrity = m.integrity ?? 100; break; }
+  }
+  const reactorScalar = getReactorPowerScalar(reactorIntegrity);
+
+  for(const m of game.modulesPlaced){
+    const d = m.def;
+    // ✓ MODULE DISABILITY (HYSTERESIS PATTERN):
+    //   - Module DISABLES when integrity drops to 0%.
+    //   - Module RE-ENABLES only when integrity climbs back ABOVE 20%.
+    //   - This prevents on/off flickering ("on, no wait-off, ah back on-nope off again").
+    //   - Between 0% and 20%, the module stays disabled even if being repaired.
+    const currentIntegrity = m.integrity ?? 100;
+    if (currentIntegrity <= 0) {
+      // Always disable at 0%
+      m.disabled = true;
+    } else if (m.disabled && currentIntegrity > 20) {
+      // Re-enable only when crossing back above 20% threshold
+      m.disabled = false;
+    } else if (!m.disabled && currentIntegrity > 0) {
+      // Normal functioning state
+      m.disabled = false;
+    }
+    // If module is currently disabled and integrity is 0–20%, it stays disabled.
+    
+    if (m.disabled) {
+      continue;           // Skip all power/crew calculations for disabled modules
+    }
+
+    const integrityFactor = currentIntegrity / 100;
+    const levelPowerMult  = (1 + (m.level - 1) * 0.4);
+    const levelShieldMult = (1 + (m.level - 1) * 0.5);
+    const levelCostMult   = (1 + (m.level - 1) * 0.1);
+
+    // ── POWER PROVIDERS ─────────────────────────────────────────────────
+    if (d.powerProvides) {
+      const baseline = d.powerProvides * levelPowerMult;
+      powerBaseline += baseline;
+      // Reactor uses the gentle-then-steep curve; aux sources scale linearly with integrity.
+      if (m.type === 'REACTOR') {
+        powerCapacity += baseline * reactorScalar;
+      } else {
+        powerCapacity += baseline * integrityFactor;
+      }
+    }
+
+    // ── CREW PROVIDERS (Habitats) ───────────────────────────────────────
+    if (d.crewProvides) {
+      const baseline = d.crewProvides;
+      crewBaseline += baseline;
+      crewManpower += baseline * integrityFactor;  // damage to habs reduces manpower
+    }
+
+    // ── SHIELD PROVIDERS ────────────────────────────────────────────────
+    if (d.shieldProvides) {
+      shC += d.shieldProvides * levelShieldMult * integrityFactor;
+    }
+
+    // ── CONSUMERS (power & crew demand) ─────────────────────────────────
+    // DISABLED modules draw zero power and crew
+    if (d.powerCost) powerLoad   += d.powerCost * levelCostMult;
+    if (d.crewReq)   crewRequired += d.crewReq;
+  }
+
+  // ── COMMIT NEW STATE ──────────────────────────────────────────────────
+  // Baseline values (for Base Menu & placement validation).
+  game.powerBaseline = powerBaseline;
+  game.crewBaseline  = crewBaseline;
+  // Combat values (for combat performance & HUD percentage display).
+  game.powerCapacity = powerCapacity;
+  game.powerLoad     = powerLoad;
+  game.crewManpower  = crewManpower;
+  game.crewRequired  = crewRequired;
+
+  // ── REACTOR MIRROR SYNC ────────────────────────────────────────────────
+  // game.reactor is a legacy mirror field — re-sync from the module here so
+  // any code that reads game.reactor (HUD display, threat calc, save state)
+  // sees an up-to-date value. The reactor module is the single source of truth.
+  const reactorMod = game.modulesPlaced.find(m => m.type === 'REACTOR');
+  if (reactorMod) {
+    game.reactor = reactorMod.integrity ?? 100;
+  }
+
+  // ── LEGACY FIELDS (kept for backward compatibility) ───────────────────
+  // Older code reads game.power / game.powerMax / game.crew / game.crewMax — mirror to those.
+  // powerMax  → Capacity (combat value); power → Capacity − Load (surplus, can be negative→0).
+  game.powerMax = Math.max(0, powerCapacity);
+  game.power    = Math.max(0, powerCapacity - powerLoad);
+  // crewMax → Manpower; crew → Manpower (clamp).
+  game.crewMax = Math.max(0, crewManpower);
+  game.crew    = Math.min(game.crew, game.crewMax);
+  if (game.crew <= 0 && crewManpower > 0) game.crew = crewManpower;  // first-time init only
+
+  // Shield capacity
+  const prev = game.colonyShieldMax;
+  game.colonyShieldMax = shC;
+  if (shC > prev) game.colonyShield = Math.min(shC, game.colonyShield + (shC - prev));
+  else            game.colonyShield = Math.min(game.colonyShield, shC);
+
+  // ✓ SYSTEM STRAIN: now derived from the new ratios.
+  // 1.0 = at-or-above demand; <1.0 = undersupplied. Strain = 1 − combined.
+  const powerRatio = powerLoad > 0    ? Math.min(1, powerCapacity / powerLoad)   : 1;
+  const crewRatio  = crewRequired > 0 ? Math.min(1, crewManpower  / crewRequired) : 1;
+  const combined   = (powerRatio + crewRatio) / 2;
+  game.stress = clamp((1 - combined) * 100, 0, 100);
 }
 function canPlace(typeKey,anchorR,anchorC,skipR=-1,skipC=-1){
   const def=MODULE_TYPES[typeKey],cells=def.cells.map(([dc,dr])=>[anchorR+dr,anchorC+dc]);
@@ -1727,8 +2828,20 @@ function canPlace(typeKey,anchorR,anchorC,skipR=-1,skipC=-1){
     if(!mask[r][c])return{ok:false,reason:def.category==='EXTERIOR'?'EXTERIOR HULL ONLY':'OUTSIDE GRID BOUNDS'};
     const occ=game.baseGrid[r][c].occupiedBy;if(occ&&!(occ.anchorR===skipR&&occ.anchorC===skipC))return{ok:false,reason:'SPACE OCCUPIED'};
   }
-  if(def.powerCost&&game.power<def.powerCost)return{ok:false,reason:`INSUFFICIENT POWER`};
-  if(def.crewReq&&game.crew<def.crewReq)return{ok:false,reason:`INSUFFICIENT CREW`};
+  if(def.powerCost){
+    // ✓ PLACEMENT RULE (per spec §2.2): a module cannot be placed if its draw would
+    //   push total Load above Baseline (theoretical max at full integrity).
+    //   Capacity is ignored here — only Baseline matters at placement time.
+    const projectedLoad = (game.powerLoad ?? 0) + def.powerCost;
+    const baseline = game.powerBaseline ?? 0;
+    if (projectedLoad > baseline) return {ok:false, reason:'INSUFFICIENT POWER'};
+  }
+  if(def.crewReq){
+    // ✓ PLACEMENT RULE (per spec §3.2): same logic for crew — use Baseline manpower pool.
+    const projectedReq = (game.crewRequired ?? 0) + def.crewReq;
+    const baseline = game.crewBaseline ?? 0;
+    if (projectedReq > baseline) return {ok:false, reason:'INSUFFICIENT CREW'};
+  }
   if(def.salvageCost&&game.salvage<def.salvageCost)return{ok:false,reason:`INSUFFICIENT SALVAGE`};
   if(def.techCost&&game.tech<def.techCost)return{ok:false,reason:`INSUFFICIENT TECH`};
   return{ok:true};
@@ -1756,6 +2869,8 @@ function clickCell(r,c){
 function applyGridView(){
   const mode=game.gridMode;
   for(let r=0;r<GRID_ROWS;r++)for(let c=0;c<GRID_COLS;c++){const cell=game.baseGrid[r][c],el=cell.el;el.classList.remove('exterior-buildable','cross-mode');if(cell.occupiedBy){if(cell.occupiedBy.def.category!==mode)el.classList.add('cross-mode');}else if(mode==='EXTERIOR'&&EXTERIOR_RING[r][c])el.classList.add('exterior-buildable');}
+  // ✓ Update structural alarms
+  updateStructuralAlarms();
 }
 function setGridMode(m){if(game.gridMode===m)return;game.gridMode=m;game.selectedModule=null;clearHover();applyGridView();renderModLib();document.querySelectorAll('.mode-tab').forEach(t=>t.classList.toggle('active',t.dataset.gridMode===m));document.getElementById('lib-mode-label').textContent=m;}
 function renderModLib(){
@@ -1766,7 +2881,37 @@ function renderModLib(){
   for(const key of order){
     const def=MODULE_TYPES[key];const item=document.createElement('div');
     item.className='lib-item'+(game.selectedModule===key?' selected':'');
-    item.innerHTML=`${GLYPH[def.glyph]}<div class="lib-name">${def.short}</div><div class="lib-cost">${def.salvageCost}<span style="color:var(--salvage)">&#9642;</span>${def.techCost>0?def.techCost+'<span style="color:var(--tech)">&#9642;</span>':''}</div>`;
+    
+    // ✓ HEALTH DISPLAY & FILL: aggregate integrity across all instances of this module type.
+    // Show: average integrity %, or "OFF" if ALL instances are disabled.
+    let healthLabel = '';
+    let avgIntegrity = 100;
+    let allDisabled = false;
+    const placedMods = game.modulesPlaced.filter(m => m.type === key);
+    if (placedMods.length > 0) {
+      const sum = placedMods.reduce((s, m) => s + (m.integrity ?? 100), 0);
+      avgIntegrity = sum / placedMods.length;
+      allDisabled = placedMods.every(m => m.disabled);
+      if (allDisabled) {
+        healthLabel = '<div class="lib-health" style="color:#ff5252">OFF</div>';
+        item.classList.add('module-disabled');
+      } else {
+        healthLabel = `<div class="lib-health">${Math.round(avgIntegrity)}%</div>`;
+      }
+    }
+    
+    // Determine fill color class based on integrity %
+    let fillClass = 'health-good';
+    if (avgIntegrity < 20) fillClass = 'health-crit';
+    else if (avgIntegrity < 50) fillClass = 'health-warn';
+    
+    // Health fill bar (cup-fill, behind icon via z-index)
+    const fillHeight = placedMods.length > 0 ? Math.max(0, Math.min(100, avgIntegrity)) : 0;
+    const healthFill = placedMods.length > 0
+      ? `<div class="module-health-fill ${fillClass}" data-lib-fill="${key}" style="height:${fillHeight}%"></div>`
+      : '';
+    
+    item.innerHTML=`${healthFill}${GLYPH[def.glyph]}<div class="lib-name">${def.short}</div>${healthLabel}<div class="lib-cost">${def.salvageCost}<span style="color:var(--salvage)">&#9642;</span>${def.techCost>0?def.techCost+'<span style="color:var(--tech)">&#9642;</span>':''}</div>`;
     item.addEventListener('click',()=>{game.selectedModule=(game.selectedModule===key)?null:key;clearHover();renderModLib();});
     item.addEventListener('mousedown',e=>{if(e.button!==0)return;e.preventDefault();startDrag(e.clientX,e.clientY,key,true,-1,-1);});
     item.addEventListener('touchstart',e=>{e.preventDefault();const t=e.changedTouches[0];startDrag(t.clientX,t.clientY,key,true,-1,-1);},{passive:false});
@@ -1776,10 +2921,23 @@ function renderModLib(){
 function refreshBMUI(){
   document.getElementById('bm-salvage').textContent=Math.floor(game.salvage);
   document.getElementById('bm-tech').textContent=Math.floor(game.tech);
-  document.getElementById('bm-power').textContent=`${Math.floor(game.power)}/${Math.floor(game.powerMax)} GW`;
-  document.getElementById('bm-power-bar').style.width=`${(game.power/game.powerMax)*100}%`;
-  document.getElementById('bm-crew').textContent=`${Math.floor(game.crew)}/${Math.floor(game.crewMax)}`;
-  document.getElementById('bm-crew-bar').style.width=`${(game.crew/game.crewMax)*100}%`;
+
+  // ═══ BASE MENU: Load vs Baseline (placement-time view) ═══════════════════
+  // Base Menu shows the PLACEMENT constraint view: Load / Baseline.
+  // The bar fills from 0% (no draw) to 100% (Baseline fully utilized).
+  // Combat-time degradation (Capacity) is NOT shown here — that's the HUD's job.
+  const pLoad = Math.floor(game.powerLoad ?? 0);
+  const pBase = Math.floor(game.powerBaseline ?? 0);
+  document.getElementById('bm-power').textContent = `${pLoad}/${pBase} GW`;
+  const pBarPct = pBase > 0 ? Math.min(100, (pLoad / pBase) * 100) : 0;
+  document.getElementById('bm-power-bar').style.width = `${pBarPct}%`;
+
+  const cReq  = Math.floor(game.crewRequired ?? 0);
+  const cBase = Math.floor(game.crewBaseline ?? 0);
+  document.getElementById('bm-crew').textContent = `${cReq}/${cBase}`;
+  const cBarPct = cBase > 0 ? Math.min(100, (cReq / cBase) * 100) : 0;
+  document.getElementById('bm-crew-bar').style.width = `${cBarPct}%`;
+
   document.getElementById('bm-stress-bar').style.width=`${game.stress}%`;
   document.getElementById('bm-stress').textContent=game.stress<25?'STABLE':game.stress<50?'NORMAL':game.stress<75?'STRAINED':'CRITICAL';
 }
@@ -1793,7 +2951,7 @@ function startDrag(cx,cy,typeKey,fromLib,fromR,fromC){
 function moveDrag(cx,cy){dragGhost.style.left=(cx-16)+'px';dragGhost.style.top=(cy-16)+'px';}
 function getDragCell(cx,cy){const grid=document.getElementById('base-grid'),gr=grid.getBoundingClientRect();const col=Math.floor((cx-gr.left)/(gr.width/GRID_COLS)),row=Math.floor((cy-gr.top)/(gr.height/GRID_ROWS));if(row<0||row>=GRID_ROWS||col<0||col>=GRID_COLS)return null;return{row,col};}
 function hlDrop(cx,cy){clearHover();const d=game.drag;if(!d.active||!d.typeKey)return null;const dc=getDragCell(cx,cy);if(!dc)return null;const def=MODULE_TYPES[d.typeKey];if(def.category!==game.gridMode)return null;const check=canPlace(d.typeKey,dc.row,dc.col,d.fromLib?-1:d.fromR,d.fromLib?-1:d.fromC);const cls=check.ok?'drag-over-valid':'drag-over-invalid';for(const [rr,cc] of def.cells.map(([dc2,dr])=>[dc.row+dr,dc.col+dc2]))if(rr>=0&&rr<GRID_ROWS&&cc>=0&&cc<GRID_COLS)game.baseGrid[rr][cc].el.classList.add(cls);return{...dc,ok:check.ok};}
-function removeModAt(anchorR,anchorC){const mod=game.baseGrid[anchorR][anchorC].occupiedBy;if(!mod)return null;game.modulesPlaced=game.modulesPlaced.filter(m=>m!==mod);delete mod._sp;for(const [r,c] of mod.cells){const cell=game.baseGrid[r][c];cell.occupiedBy=null;cell.el.classList.remove('occupied','reactor-cell','ext-mod','module-anchor');cell.el.innerHTML='';}recomputeStats();return mod;}
+function removeModAt(anchorR,anchorC){const mod=game.baseGrid[anchorR][anchorC].occupiedBy;if(!mod)return null;game.modulesPlaced=game.modulesPlaced.filter(m=>m!==mod);delete mod._sp;for(const [r,c] of mod.cells){const cell=game.baseGrid[r][c];cell.occupiedBy=null;cell.el.classList.remove('occupied','reactor-cell','ext-mod','module-anchor','module-disabled','crit-alarm');cell.el.innerHTML='';}recomputeStats();return mod;}
 function endDrag(cx,cy){
   dragGhost.classList.remove('active');clearHover();
   const d={...game.drag};game.drag={active:false,typeKey:null,fromLib:false,fromR:-1,fromC:-1};
@@ -1824,16 +2982,188 @@ document.getElementById('base-grid').addEventListener('touchstart',e=>{
 
 // ═══ MAIN LOOP ════════════════════════════════════════════════════════════════
 let lastT=performance.now();
+let _frameId=0;
 function loop(now){
   const realDt=Math.min(.05,(now-lastT)/1000);lastT=now;game.t+=realDt;const dt=realDt*game.timeScale;game.gt+=dt;
+  _frameId++;
+  // ✓ EFFECTIVENESS: refresh the per-frame snapshot of power/crew efficiency + stance.
+  // Combat functions below read this via LogisticsController.getEffectiveness().
+  LogisticsController.refreshEffectiveness(_frameId);
   if(game.state===STATES.PLAYING||game.state===STATES.TETHERED){game.sectorTime+=dt;game.waveTimer=Math.max(0,game.waveTimer-dt);}
   let exp=false;game.alerts.forEach((v,k)=>{if(game.t>v.until){game.alerts.delete(k);exp=true;}});if(exp)renderAlerts();
   updateStars(realDt);
   if(game.state!==STATES.MAIN_MENU&&game.state!==STATES.GAME_OVER&&dt>0){
     updateShip(dt);updateBullets(dt);updateAsteroids(dt);updateRaider(dt);updateMissiles(dt);updateTurrets(dt);updatePickups(dt);updateParticles(dt);
-    if(game.colonyShieldMax>0&&game.colonyShield<game.colonyShieldMax&&game.t-game.colonyShieldLastHit>3.0)game.colonyShield=Math.min(game.colonyShieldMax,game.colonyShield+COLONY_SHIELD_REGEN*dt);
+    // ✓ SHIELD EFFICIENCY: Apply power efficiency to regen rate and crew efficiency to recharge delay
+    if(game.colonyShieldMax>0&&game.colonyShield<game.colonyShieldMax){
+      const eff = LogisticsController.getEffectiveness();
+      const powerEff = eff.powerEff;
+      const crewEff = eff.crewEff;
+      const baseRechargeDelay = 3.0;  // seconds before shields recharge
+      const actualRechargeDelay = baseRechargeDelay / crewEff;  // ← Crew efficiency (inverse)
+      
+      if(game.t - game.colonyShieldLastHit > actualRechargeDelay) {
+        const baseRegenRate = COLONY_SHIELD_REGEN;
+        const actualRegenRate = baseRegenRate * powerEff;  // ← Power efficiency
+        game.colonyShield = Math.min(game.colonyShieldMax, game.colonyShield + actualRegenRate * dt);
+      }
+    }
+    // ✓ MAINTENANCE: Crew healing from med bays
+    if(game.state===STATES.PLAYING||game.state===STATES.TETHERED){
+      const maintenance=processMaintenance(dt);
+      if(maintenance.crewHealed>0){
+        // Crew healed via MED_BAY
+      }
+      // ✓ LOGISTICS CONTROLLER: Stance-aware module repair distribution
+      // This is the single authority on module.integrity changes from repair.
+      const logisticsReport = LogisticsController.processMaintenanceLoop(dt);
+      if(logisticsReport.repairsDistributed > 0.1) {
+        applyGridView();  // Refresh alarm classes if integrity crossed 20% threshold
+      }
+      // ✓ STRUCTURAL DAMAGE: Check for destroyed modules
+      checkModuleDestruction();
+    }
   }
-  render();updateHUD();requestAnimationFrame(loop);
+  render();updateHUD();renderLogisticsHUD();updateTetherBars();
+  // ✓ HEALTH BAR UPDATES (cup-fill): only run when docked, throttled to ~20fps.
+  // Health bars are non-critical UI, so we update every 3 frames (~20fps at 60fps target)
+  // to free CPU for combat-critical work in PLAYING state.
+  if (game.state === STATES.TETHERED || game.state === STATES.BASE_MENU) {
+    if (!game._healthBarFrame) game._healthBarFrame = 0;
+    game._healthBarFrame = (game._healthBarFrame + 1) % 3;
+    if (game._healthBarFrame === 0) updateHealthBars();
+  }
+  requestAnimationFrame(loop);
+}
+
+// ═══ TETHER BAR UPDATE (syncs ship status to tether modal) ═════════════════════
+// Called every frame when tethered to update the shield/hull progress bars.
+function updateTetherBars() {
+  if (game.state !== STATES.TETHERED) return;
+  
+  const shieldBar = document.getElementById('tether-shield-bar');
+  const hullBar = document.getElementById('tether-hull-bar');
+  const shieldText = document.getElementById('tether-shield-text');
+  const hullText = document.getElementById('tether-hull-text');
+  
+  if (!shieldBar || !hullBar) return;
+  
+  // Get ship reference
+  const s = game.ship;
+  if (!s) return;
+  
+  // Calculate percentages using correct max values (SHIELD_MAX and HULL_MAX constants)
+  const shieldPct = (s.shield / SHIELD_MAX) * 100;
+  const hullPct = (s.hull / HULL_MAX) * 100;
+  
+  // Update bar fills via CSS custom properties
+  shieldBar.style.setProperty('--bar-fill', Math.max(0, Math.min(100, shieldPct)) + '%');
+  hullBar.style.setProperty('--bar-fill', Math.max(0, Math.min(100, hullPct)) + '%');
+  
+  // Update text overlays: Current / Max
+  if (shieldText) {
+    shieldText.textContent = Math.ceil(s.shield) + ' / ' + Math.ceil(SHIELD_MAX);
+  }
+  if (hullText) {
+    hullText.textContent = Math.ceil(s.hull) + ' / ' + Math.ceil(HULL_MAX);
+  }
+  
+  // Toggle shimmer animation: active when below max (recharging)
+  if (s.shield < SHIELD_MAX) {
+    shieldBar.classList.add('active');
+  } else {
+    shieldBar.classList.remove('active');
+  }
+  
+  if (s.hull < HULL_MAX) {
+    hullBar.classList.add('active');
+  } else {
+    hullBar.classList.remove('active');
+  }
+}
+
+// ═══ MODULE HEALTH BAR UPDATES (cup-fill metaphor) ════════════════════════════
+// Called from main loop ONLY when docked (TETHERED or BASE_MENU state),
+// and throttled to ~20fps via frame counter to avoid wasting CPU.
+// Updates:
+//   1. Grid cell health-fill divs (height + color class)
+//   2. Library item health-fill divs + health % labels
+function updateHealthBars() {
+  // Update grid cell fills (via mod.healthFillEls references stored at placement)
+  for (const m of game.modulesPlaced) {
+    if (!m.healthFillEls) continue;
+    const integrity = Math.max(0, Math.min(100, m.integrity ?? 100));
+    let fillClass = 'health-good';
+    if (integrity < 20) fillClass = 'health-crit';
+    else if (integrity < 50) fillClass = 'health-warn';
+    
+    for (const fill of m.healthFillEls) {
+      // Set height (percentage)
+      fill.style.height = integrity + '%';
+      // Swap color class if needed (avoid unnecessary class manipulation)
+      if (!fill.classList.contains(fillClass)) {
+        fill.classList.remove('health-good', 'health-warn', 'health-crit');
+        fill.classList.add(fillClass);
+      }
+    }
+  }
+  
+  // Update library items: re-aggregate health % per module type and update DOM in place
+  // (Avoid full re-render via renderModLib() which would lose drag state etc.)
+  const libItems = document.querySelectorAll('#module-library .lib-item');
+  if (libItems.length === 0) return;
+  
+  const intO = ['HABITAT','ENGINEERING','SALVAGE_STORAGE','TECH_STORAGE','SCIENCE_BAY','FABRICATION','COMMAND_DECK','MED_BAY'];
+  const extO = ['POINT_DEFENSE','EXT_TURRET_MKII','SHIELD_GEN','SENSOR_ARRAY','COMMS_RELAY'];
+  const order = game.gridMode === 'EXTERIOR' ? extO : intO;
+  
+  libItems.forEach((item, idx) => {
+    const key = order[idx];
+    if (!key) return;
+    const placedMods = game.modulesPlaced.filter(m => m.type === key);
+    
+    const healthEl = item.querySelector('.lib-health');
+    const fillEl = item.querySelector('.module-health-fill');
+    
+    if (placedMods.length === 0) {
+      // No placed modules of this type — remove health UI if present
+      if (healthEl) healthEl.textContent = '';
+      if (fillEl) fillEl.style.height = '0%';
+      item.classList.remove('module-disabled');
+      return;
+    }
+    
+    const sum = placedMods.reduce((s, m) => s + (m.integrity ?? 100), 0);
+    const avgIntegrity = sum / placedMods.length;
+    const allDisabled = placedMods.every(m => m.disabled);
+    
+    // Update health label text
+    if (healthEl) {
+      if (allDisabled) {
+        healthEl.textContent = 'OFF';
+        healthEl.style.color = '#ff5252';
+      } else {
+        healthEl.textContent = Math.round(avgIntegrity) + '%';
+        healthEl.style.color = '';
+      }
+    }
+    
+    // Toggle disabled class on the lib-item itself (grays out icon)
+    item.classList.toggle('module-disabled', allDisabled);
+    
+    // Update fill height + color class
+    if (fillEl) {
+      const fillHeight = Math.max(0, Math.min(100, avgIntegrity));
+      fillEl.style.height = fillHeight + '%';
+      let fillClass = 'health-good';
+      if (avgIntegrity < 20) fillClass = 'health-crit';
+      else if (avgIntegrity < 50) fillClass = 'health-warn';
+      if (!fillEl.classList.contains(fillClass)) {
+        fillEl.classList.remove('health-good', 'health-warn', 'health-crit');
+        fillEl.classList.add(fillClass);
+      }
+    }
+  });
 }
 
 // ═══ WIRING ═══════════════════════════════════════════════════════════════════
@@ -1850,6 +3180,1161 @@ document.getElementById('resume-tether').addEventListener('click',doDisembark);
 document.querySelectorAll('.stance-btn').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.stance-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');game.stance=b.dataset.stance;}));
 document.querySelectorAll('.mode-tab').forEach(t=>t.addEventListener('click',()=>setGridMode(t.dataset.gridMode)));
 document.getElementById('pause-btn').addEventListener('click',()=>{if(game.state===STATES.PLAYING||game.state===STATES.TETHERED)openPause();else if(game.state===STATES.PAUSED)closePause();else if(game.state===STATES.BASE_MENU)doDisembark();});
+// ═══ GAME LOGIC HANDLER - BASE BUILDING ════════════════════════════════════════
+// Validation and damage systems for colony modules
+
+/**
+ * Checks if colony can support a new module with current power and crew.
+ * @param {Object} moduleDef - Module definition (expects: powerRequired, crewRequired)
+ * @returns {Object} Validation result with canSupport flag and details
+ */
+function canSupportModule(moduleDef) {
+  const availablePower = game.powerMax - game.power;
+  const availableCrew = game.crewMax - game.crew;
+
+  const powerDeficit = Math.max(0, moduleDef.powerRequired - availablePower);
+  const crewDeficit = Math.max(0, moduleDef.crewRequired - availableCrew);
+  const canSupport = powerDeficit === 0 && crewDeficit === 0;
+
+  let reason = '';
+  if (powerDeficit > 0) {
+    reason += `INSUFFICIENT POWER: need ${moduleDef.powerRequired} GW, only ${availablePower.toFixed(1)} GW available. `;
+  }
+  if (crewDeficit > 0) {
+    reason += `INSUFFICIENT CREW: need ${moduleDef.crewRequired}, only ${availableCrew} available. `;
+  }
+  if (reason === '') {
+    reason = 'MODULE SUPPORTED';
+  }
+
+  return {
+    canSupport,
+    availablePower: Math.max(0, availablePower),
+    availableCrew: Math.max(0, availableCrew),
+    powerDeficit,
+    crewDeficit,
+    reason: reason.trim(),
+  };
+}
+
+/**
+ * Applies structural damage to a random occupied module cell.
+ * Reduces integrity, power output (if Reactor), and crew (based on damage).
+ * @param {Number} amount - Damage amount (intensity, 0-100)
+ * @returns {Object} Damage report with full details
+ */
+function applyStructuralDamage(amount) {
+  const result = {
+    hit: false,
+    moduleType: null,
+    cellR: -1,
+    cellC: -1,
+    damageApplied: 0,
+    integrityAfter: 0,
+    crewCasualties: 0,
+    reactorPowerLost: 0,
+    message: '',
+  };
+
+  // Collect all occupied cells
+  const occupiedCells = [];
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const cell = game.baseGrid[r][c];
+      if (cell.occupiedBy !== null) {
+        occupiedCells.push({ r, c, module: cell.occupiedBy });
+      }
+    }
+  }
+
+  if (occupiedCells.length === 0) {
+    result.message = 'NO TARGETS — shields held.';
+    return result;
+  }
+
+  // Random target
+  const target = occupiedCells[Math.floor(Math.random() * occupiedCells.length)];
+  const { r: cellR, c: cellC, module } = target;
+
+  result.hit = true;
+  result.cellR = cellR;
+  result.cellC = cellC;
+  result.moduleType = module.type;
+
+  // Initialize integrity
+  if (module.integrity === undefined) {
+    module.integrity = 100;
+  }
+
+  // Apply damage with variance (60-120% of base amount)
+  const variance = 0.6 + Math.random() * 0.6;
+  result.damageApplied = Math.min(100, amount * variance);
+  module.integrity = Math.max(0, module.integrity - result.damageApplied);
+  result.integrityAfter = module.integrity;
+
+  // REACTOR: Reduce power output proportionally
+  if (module.type === 'REACTOR') {
+    const baseReactorPower = module.def?.powerProvided || 100;
+    result.reactorPowerLost = (result.damageApplied / 100) * baseReactorPower;
+    game.power = Math.max(0, game.power - result.reactorPowerLost);
+  }
+
+  // CREW CASUALTIES: Percentage of module crew based on damage severity
+  if (module.def?.crewRequired && module.def.crewRequired > 0) {
+    const casualtyRate = result.damageApplied / 100;
+    result.crewCasualties = Math.floor(module.def.crewRequired * casualtyRate);
+    game.crew = Math.max(0, game.crew - result.crewCasualties);
+  }
+
+  // Build damage report message
+  const moduleName = module.def?.short || module.type;
+  let msg = `HIT ON ${moduleName} at [${cellR},${cellC}]`;
+  const dmgs = [`INTEGRITY: ${Math.round(result.integrityAfter)}%`];
+  
+  if (result.reactorPowerLost > 0) {
+    dmgs.push(`POWER LOST: -${result.reactorPowerLost.toFixed(1)} GW`);
+  }
+  if (result.crewCasualties > 0) {
+    dmgs.push(`CREW LOST: -${result.crewCasualties}`);
+  }
+  
+  result.message = `${msg} | ${dmgs.join(' | ')}`;
+
+  // Critical system destruction
+  if (module.integrity <= 0) {
+    module.integrity = 0;
+    if (module.type === 'REACTOR') {
+      game.power = 0;
+      result.message += ' | ⚠ REACTOR DESTROYED — POWER OFFLINE';
+    } else if (module.type === 'SHIELD_GEN') {
+      game.colonyShieldMax = 0;
+      result.message += ' | ⚠ SHIELD GENERATOR DESTROYED';
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Safe wrapper: Applies damage only if shields are down.
+ * @param {Number} damageAmount - Damage intensity
+ * @returns {Object|null} Damage report or null if shields prevented it
+ */
+function damageColonyStructure(damageAmount) {
+  if (game.colonyShield > 0) {
+    return null; // Shields protected us
+  }
+
+  const report = applyStructuralDamage(damageAmount);
+  
+  if (report.hit) {
+    console.log(`STRUCTURAL DAMAGE: ${report.message}`);
+    refreshBMUI();
+    
+    // Alert for critical hits
+    if (report.moduleType === 'REACTOR' || report.moduleType === 'SHIELD_GEN') {
+      game.alerts.set('critical_hit', { until: game.t + 4, text: report.message.substring(0, 60) });
+      renderAlerts();
+    }
+  }
+
+  return report;
+}
+
+// ═══ MAINTENANCE MANAGER ═══════════════════════════════════════════════════════
+// Tracks repair bandwidth and crew healing
+
+// Constants
+const SALVAGE_PER_INTEGRITY = 0.15;  // Salvage cost per integrity point
+const BASE_ENG_THROUGHPUT = 1.5;     // Per engineering bay
+const ENG_LEVEL_BONUS = 0.25;        // Per level above 1
+const BASE_MED_HEALING = 0.8;        // Crew per second per med bay
+const MED_LEVEL_BONUS = 0.15;        // Per level above 1
+const CREW_COST_RATIO = 0.08;        // Cost of healing as % of crew max
+
+/**
+ * Calculate total repair bandwidth from ENGINEERING modules.
+ */
+function calculateRepairBandwidth() {
+  let bayCount = 0, baseContribution = 0, levelBonus = 0;
+  
+  for (const module of game.modulesPlaced) {
+    if (module.type === 'ENGINEERING') {
+      bayCount++;
+      baseContribution += BASE_ENG_THROUGHPUT;
+      const level = module.level || 1;
+      if (level > 1) levelBonus += ENG_LEVEL_BONUS * (level - 1);
+    }
+  }
+  
+  const totalThroughput = baseContribution + levelBonus;
+  const priorityAllocated = totalThroughput * 0.70;  // 70% to priority
+  const availableForGeneral = totalThroughput * 0.30; // 30% to general
+
+  return { totalThroughput, bayCount, baseContribution, levelBonus, priorityAllocated, availableForGeneral };
+}
+
+/**
+ * Calculate crew healing rate from MED_BAY modules.
+ */
+function calculateCrewHealingRate() {
+  let bayCount = 0, baseHealingRate = 0, levelBonus = 0;
+  
+  for (const module of game.modulesPlaced) {
+    if (module.type === 'MED_BAY') {
+      bayCount++;
+      baseHealingRate += BASE_MED_HEALING;
+      const level = module.level || 1;
+      if (level > 1) levelBonus += MED_LEVEL_BONUS * (level - 1);
+    }
+  }
+  
+  const healingRate = baseHealingRate + levelBonus;
+  const crewLossFromHealing = (healingRate / game.crewMax) * CREW_COST_RATIO;
+
+  return { healingRate, bayCount, baseHealingRate, levelBonus, crewLossFromHealing };
+}
+
+/**
+ * Apply repair to a single module, returns actual integrity restored.
+ */
+function applyModuleRepair(module, amount) {
+  if (module.integrity === undefined) module.integrity = 100;
+  const currentIntegrity = module.integrity;
+  const maxRepair = 100 - currentIntegrity;
+  const actualRepair = Math.min(amount, maxRepair);
+
+  if (actualRepair > 0) {
+    module.integrity = Math.min(100, currentIntegrity + actualRepair);
+    
+    // Restore functionality for critical systems
+    if (module.type === 'REACTOR' && currentIntegrity <= 0) recomputeStats();
+    if (module.type === 'SHIELD_GEN' && currentIntegrity <= 0) recomputeStats();
+  }
+
+  return actualRepair;
+}
+
+/**
+ * Main maintenance loop: distribute bandwidth to damaged modules,
+ * apply salvage costs, and process crew healing.
+ */
+function processMaintenance(dt) {
+  // NOTE: Module integrity repair is now handled by LogisticsController.processMaintenanceLoop
+  // (which is stance-aware). This function is reduced to crew healing only to avoid
+  // double-repair conflicts.
+  const result = {
+    bandwidthUsed: 0,
+    integrityRestored: 0,
+    salvageConsumed: 0,
+    crewHealed: 0,
+    priorityRepaired: 0,
+    generalRepaired: 0,
+  };
+
+  // Crew healing from med bays
+  const healing = calculateCrewHealingRate();
+  const crewToHeal = healing.healingRate * dt;
+  const healingCost = healing.crewLossFromHealing * dt;
+
+  if (crewToHeal > 0 && game.crew < game.crewMax) {
+    const crewMissing = game.crewMax - game.crew;
+    const actualHealing = Math.min(crewToHeal, crewMissing);
+    if (actualHealing > 0) {
+      game.crew = Math.min(game.crewMax, game.crew + actualHealing);
+      result.crewHealed = actualHealing;
+      game.crew = Math.max(0, game.crew - healingCost);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Debug function for maintenance status.
+ */
+function logMaintenanceStatus() {
+  const bandwidth = calculateRepairBandwidth();
+  const healing = calculateCrewHealingRate();
+
+  console.group('=== MAINTENANCE STATUS ===');
+  
+  console.group('REPAIR BANDWIDTH');
+  console.log(`Total: ${bandwidth.totalThroughput.toFixed(2)} integrity/s`);
+  console.log(`Engineering Bays: ${bandwidth.bayCount}`);
+  console.log(`Priority (70%): ${bandwidth.priorityAllocated.toFixed(2)}/s`);
+  console.log(`General (30%): ${bandwidth.availableForGeneral.toFixed(2)}/s`);
+  console.groupEnd();
+
+  console.group('CREW HEALING');
+  console.log(`Rate: ${healing.healingRate.toFixed(2)} crew/s`);
+  console.log(`Medical Bays: ${healing.bayCount}`);
+  console.groupEnd();
+
+  console.group('DAMAGED MODULES');
+  const damaged = game.modulesPlaced.filter(m => (m.integrity ?? 100) < 100);
+  if (damaged.length === 0) {
+    console.log('None — all systems operational');
+  } else {
+    damaged.forEach(m => {
+      const isPriority = ['REACTOR', 'SHIELD_GEN', 'COMMAND_DECK'].includes(m.type);
+      console.log(`${m.def.short}: ${Math.round(m.integrity ?? 100)}% [${isPriority ? 'PRIORITY' : 'GENERAL'}]`);
+    });
+  }
+  console.groupEnd();
+
+  console.groupEnd();
+}
+
+// ═══ SYSTEM EFFICIENCY HELPER ═══════════════════════════════════════════════════
+// Global power and crew efficiency multipliers
+
+/**
+ * Power Efficiency: how much power capacity is available vs the baseline (100).
+ * Affects: turret damage, shield regen rate.
+ * Since recomputeStats() bakes the reactor curve into game.powerMax, this simply
+ * normalizes that against the baseline reactor output (100). At full reactor
+ * health: 1.0. At reactor emergency floor: 0.10. With future power upgrades
+ * (solar panels etc.), powerMax can exceed 100 — clamp tops out at 1.0.
+ */
+function calculatePowerEfficiency() {
+  // NEW MODEL: ratio of Capacity / Load, then map through the effectiveness curve.
+  // - If nothing draws power (Load = 0), effectiveness is 1.0 (no demand to fail).
+  // - Capping ratio at 1.0 means overcapacity gives no bonus (just headroom).
+  const cap  = game.powerCapacity ?? game.powerMax ?? 0;
+  const load = game.powerLoad ?? 0;
+  if (load <= 0) return 1.0;
+  const ratio = Math.min(1, cap / load);
+  return getEffectivenessFromRatio(ratio);
+}
+
+/**
+ * Crew Efficiency: measures how much crew is available vs required.
+ * Affects: turret fire rate (inverse), shield recharge delay (inverse)
+ * Formula: f(Manpower / RequiredCrew) using the shared effectiveness curve
+ */
+function calculateCrewEfficiency() {
+  // NEW MODEL: ratio of Manpower / RequiredCrew, then map through the effectiveness curve.
+  const mp  = game.crewManpower ?? game.crew ?? 0;
+  const req = game.crewRequired ?? 0;
+  if (req <= 0) return 1.0;
+  const ratio = Math.min(1, mp / req);
+  return getEffectivenessFromRatio(ratio);
+}
+
+/**
+ * Get both efficiency values with context info.
+ */
+function getSystemEfficiency() {
+  const powerEff = calculatePowerEfficiency();
+  const crewEff = calculateCrewEfficiency();
+  
+  let totalPowerReq = 0, totalCrewReq = 0;
+  for (const m of game.modulesPlaced) {
+    if (m.def?.powerCost) totalPowerReq += m.def.powerCost;
+    if (m.def?.crewReq) totalCrewReq += m.def.crewReq;
+  }
+
+  return {
+    powerEfficiency: powerEff,
+    crewEfficiency: crewEff,
+    totalEfficiency: (powerEff + crewEff) / 2,
+    powerAvailable: game.powerMax - game.power,
+    powerRequired: totalPowerReq,
+    crewActive: game.crew,
+    crewRequired: totalCrewReq,
+  };
+}
+
+/**
+ * Apply efficiency to turret damage (power-based).
+ */
+function getTurretDamageWithEfficiency(baseDamage) {
+  return baseDamage * calculatePowerEfficiency();
+}
+
+/**
+ * Apply efficiency to turret fire rate (crew-based, inverse).
+ * Lower crew = longer cooldown (slower fire rate).
+ */
+function getTurretFireRateWithEfficiency(baseCooldown) {
+  return baseCooldown / calculateCrewEfficiency();
+}
+
+/**
+ * Apply efficiency to shield regen (power-based).
+ */
+function getShieldRegenWithEfficiency(baseRegenRate) {
+  return baseRegenRate * calculatePowerEfficiency();
+}
+
+/**
+ * Apply efficiency to shield recharge delay (crew-based, inverse).
+ * Lower crew = longer wait before shields recharge.
+ */
+function getShieldRechargeDelayWithEfficiency(baseRechargeDelay) {
+  return baseRechargeDelay / calculateCrewEfficiency();
+}
+
+/**
+ * Debug: log efficiency status to console.
+ */
+function logSystemEfficiency() {
+  const eff = getSystemEfficiency();
+  console.group('=== SYSTEM EFFICIENCY ===');
+  console.log(`Power: ${eff.powerAvailable.toFixed(1)} / ${eff.powerRequired.toFixed(1)} GW (${(eff.powerEfficiency*100).toFixed(0)}%)`);
+  console.log(`Crew: ${Math.floor(eff.crewActive)} / ${Math.floor(eff.crewRequired)} (${(eff.crewEfficiency*100).toFixed(0)}%)`);
+  console.log(`Total: ${(eff.totalEfficiency*100).toFixed(0)}%`);
+  if (eff.powerEfficiency < 0.5 || eff.crewEfficiency < 0.5) {
+    console.warn('⚠ CRITICAL: Systems at reduced capacity');
+  }
+  console.groupEnd();
+}
+
+// ═══ LOGISTICS HUD ═════════════════════════════════════════════════════════════
+// Power and Crew HUD display with interactive stances
+
+/**
+ * Determine status color: Green (≥75%), Yellow (40-75%), Red (<40%)
+ */
+function getResourceStatus(current, max) {
+  const ratio = current / max;
+  if (ratio >= 0.75) return 'status-green';
+  else if (ratio >= 0.4) return 'status-yellow';
+  else return 'status-red';
+}
+
+/**
+ * Render/update logistics HUD every frame.
+ */
+// Performant HUD: cache DOM refs once, only write when value changes.
+// Heavy efficiency calcs throttled to 4Hz instead of 60Hz.
+const _hudCache = {
+  refs: null,
+  last: {power:-1, powerMax:-1, powerStatus:'', powerStance:'', powerEff:-1,
+         crew:-1, crewMax:-1, crewStatus:'', crewStance:'', crewEff:-1,
+         fluxPct:-1, fluxRate:'', lastPulseRendered:-1,
+         repairRate:'', repairZero:null, reactorPct:-1,
+         _pPctStr:'', _cPctStr:''},
+  lastEffT: 0,
+  powerEff: 1.0,
+  crewEff: 1.0
+};
+function _getHudRefs() {
+  if (_hudCache.refs) return _hudCache.refs;
+  const r = {
+    pCur: document.getElementById('hud-power-current'),
+    pMax: document.getElementById('hud-power-max'),
+    pStatus: document.getElementById('hud-power-status'),
+    pStance: document.getElementById('hud-power-stance'),
+    pEff: document.getElementById('hud-power-eff'),
+    pCont: document.getElementById('hud-power-container'),
+    cCur: document.getElementById('hud-crew-current'),
+    cMax: document.getElementById('hud-crew-max'),
+    cStatus: document.getElementById('hud-crew-status'),
+    cStance: document.getElementById('hud-crew-stance'),
+    cEff: document.getElementById('hud-crew-eff'),
+    cCont: document.getElementById('hud-crew-container'),
+    fluxFill: document.getElementById('hud-flux-bar-fill'),
+    fluxPulse: document.getElementById('hud-flux-bar-pulse'),
+    fluxRate: document.getElementById('hud-flux-rate'),
+    repairRate: document.getElementById('hud-repair-rate')
+  };
+  if (r.pCur && r.cCur) _hudCache.refs = r;  // only cache when DOM is ready
+  return r;
+}
+function renderLogisticsHUD() {
+  const r = _getHudRefs();
+  if (!r.pCur || !r.cCur) return;  // HUD not in DOM yet
+  const L = _hudCache.last;
+
+  // Throttle efficiency calcs (they iterate modulesPlaced) to 4Hz
+  if (game.t - _hudCache.lastEffT > 0.25) {
+    _hudCache.powerEff = calculatePowerEfficiency();
+    _hudCache.crewEff = calculateCrewEfficiency();
+    _hudCache.lastEffT = game.t;
+  }
+
+  // ✓ STRUCTURAL READOUTS: pull reactor integrity and avg habitat integrity for HUD labels.
+  // These are the *cause* of power/crew capacity loss — showing them directly makes the
+  // damage→capacity wiring visible to the player.
+  let reactorInt = 100;
+  let habitatSum = 0, habitatCount = 0;
+  for (const m of game.modulesPlaced) {
+    if (m.type === 'REACTOR') reactorInt = m.integrity ?? 100;
+    else if (m.type === 'HABITAT') { habitatSum += (m.integrity ?? 100); habitatCount++; }
+  }
+  const habitatInt = habitatCount > 0 ? (habitatSum / habitatCount) : 100;
+
+  // ═══ POWER DISPLAY ═══════════════════════════════════════════════════════
+  // Per spec §2.5: display = floor((Capacity / Load) × 100)% if Load > 0, else '---'.
+  // Color: RED when Capacity < Load (undersupplied), YELLOW otherwise.
+  const pCap  = game.powerCapacity ?? game.powerMax ?? 0;
+  const pLoad = game.powerLoad ?? 0;
+  const pPctVal = pLoad > 0 ? Math.floor((pCap / pLoad) * 100) : -1;   // -1 sentinel = '---'
+  const pPctStr = pPctVal < 0 ? '---' : `${pPctVal}%`;
+  if (pPctStr !== L._pPctStr) {
+    r.pCur.textContent = pPctStr;
+    // Hide the "/max" half — the percentage IS the readout now.
+    if (r.pMax) r.pMax.textContent = '';
+    L._pPctStr = pPctStr;
+    L.power = pPctVal;        // legacy field
+    L.powerMax = -1;          // legacy field
+  }
+  // Color rule: red if undersupplied (Cap < Load AND Load > 0), else yellow.
+  const pStatusClass = (pLoad > 0 && pCap < pLoad) ? 'status-red' : 'status-yellow';
+  if (pStatusClass !== L.powerStatus) {
+    r.pStatus.className = `status-light ${pStatusClass}`;
+    r.pCont.className = `res-chip power ${pStatusClass}`;
+    L.powerStatus = pStatusClass;
+  }
+  const pStance = game.powerStance || 'BALANCED';
+  if (pStance !== L.powerStance && r.pStance) { r.pStance.textContent = pStance; L.powerStance = pStance; }
+  // ✓ Reactor integrity label (was previously a duplicate efficiency %)
+  const reactorPct = Math.round(reactorInt);
+  if (reactorPct !== L.reactorPct && r.pEff) { r.pEff.textContent = `RX ${reactorPct}%`; L.reactorPct = reactorPct; }
+
+  // ═══ CREW DISPLAY ════════════════════════════════════════════════════════
+  // Per spec §3.5: display = floor((Manpower / RequiredCrew) × 100)% if Required > 0, else '---'.
+  // Color: RED when Manpower < Required (understaffed), YELLOW otherwise.
+  const cMP  = game.crewManpower ?? game.crew ?? 0;
+  const cReq = game.crewRequired ?? 0;
+  const cPctVal = cReq > 0 ? Math.floor((cMP / cReq) * 100) : -1;
+  const cPctStr = cPctVal < 0 ? '---' : `${cPctVal}%`;
+  if (cPctStr !== L._cPctStr) {
+    r.cCur.textContent = cPctStr;
+    if (r.cMax) r.cMax.textContent = '';
+    L._cPctStr = cPctStr;
+    L.crew = cPctVal;
+    L.crewMax = -1;
+  }
+  const cStatusClass = (cReq > 0 && cMP < cReq) ? 'status-red' : 'status-yellow';
+  if (cStatusClass !== L.crewStatus) {
+    r.cStatus.className = `status-light ${cStatusClass}`;
+    r.cCont.className = `res-chip crew ${cStatusClass}`;
+    L.crewStatus = cStatusClass;
+  }
+  const cStance = game.crewStance || 'BALANCED';
+  if (cStance !== L.crewStance && r.cStance) { r.cStance.textContent = cStance; L.crewStance = cStance; }
+  // ✓ Habitat integrity label (average across all HABITAT modules)
+  const habPct = Math.round(habitatInt);
+  if (habPct !== L.crewEff && r.cEff) { r.cEff.textContent = `HAB ${habPct}%`; L.crewEff = habPct; }
+
+  // ✓ REPAIR RATE READOUT (below shield bar in BASE STATUS)
+  // Shows current repairs/sec capacity from active ENGINEERING bays.
+  // Pulses yellow when game.salvage > 0 AND modules are being actively repaired.
+  if (r.repairRate) {
+    // ✓ NEW: Calculate repair pool from active ENGINEERING modules (5.0 per bay)
+    const activeEng = game.modulesPlaced.filter(m => m.type === 'ENGINEERING' && !m.disabled);
+    const totalRepairPool = activeEng.length * 5.0;
+    
+    const rateStr = totalRepairPool > 0 ? `${totalRepairPool.toFixed(1)}/s` : '0.0/s';
+    const isZero = totalRepairPool <= 0;
+    if (rateStr !== L.repairRate) {
+      r.repairRate.textContent = rateStr;
+      L.repairRate = rateStr;
+    }
+    if (isZero !== L.repairZero) {
+      r.repairRate.classList.toggle('zero', isZero);
+      L.repairZero = isZero;
+    }
+    
+    // ═══ DUAL-PULSE LOGIC (mutually exclusive yellow vs red) ═══════════════════
+    // YELLOW (.pulse-active): repairs are actively progressing
+    //   → game.salvage > 0 AND totalRepairPool > 0 AND damaged modules exist
+    // RED   (.pulse-stalled): station damaged but no salvage to repair
+    //   → game.salvage <= 0 AND damaged modules exist
+    // Filter does NOT exclude disabled modules — they need repairs to come back online.
+    const hasSalvage = game.salvage > 0;
+    const damagedModules = game.modulesPlaced.filter(m => (m.integrity ?? 100) < 100);
+    const anyDamaged = damagedModules.length > 0;
+    const isActivelyRepairing = hasSalvage && totalRepairPool > 0 && anyDamaged;
+    const isStalled = !hasSalvage && anyDamaged;
+    
+    // Apply mutually exclusive classes (one or the other, never both)
+    if (isActivelyRepairing) {
+      r.repairRate.classList.add('pulse-active');
+      r.repairRate.classList.remove('pulse-stalled');
+    } else if (isStalled) {
+      r.repairRate.classList.add('pulse-stalled');
+      r.repairRate.classList.remove('pulse-active');
+    } else {
+      // No damage or no engineering bays — clear both
+      r.repairRate.classList.remove('pulse-active');
+      r.repairRate.classList.remove('pulse-stalled');
+    }
+  }
+
+  // ✓ REPAIR FLUX BAR
+  // Bar fills with repairAccumulator value relative to expected per-pulse output (1 second's worth).
+  // Pulse animation flashes green when distribution fires.
+  if (r.fluxFill) {
+    // Compute current per-second pool (base × crew stance multiplier)
+    // Throttled-cached values aren't enough — we need fresh accumulator state.
+    // calculateRepairPool only iterates ENGINEERING modules (cheap: usually 1-3 items)
+    const pool = LogisticsController.calculateRepairPool();
+    const mult = LogisticsController.getStanceMultipliers();
+    const ratePerSec = pool.baseRepairs * mult.repairRate;
+    // Bar represents fraction of a full 1-second accumulation.
+    // Cap visually at 100% even if briefly overfilled between frames.
+    let fluxPct = 0;
+    if (ratePerSec > 0.0001) {
+      fluxPct = Math.max(0, Math.min(100, (LogisticsController.repairAccumulator / ratePerSec) * 100));
+    }
+    const fluxPctR = Math.round(fluxPct);
+    if (fluxPctR !== L.fluxPct) {
+      r.fluxFill.style.width = `${fluxPctR}%`;
+      L.fluxPct = fluxPctR;
+    }
+    // Rate readout
+    const rateStr = ratePerSec > 0.0001 ? `${ratePerSec.toFixed(1)}/s` : '0.0/s';
+    if (rateStr !== L.fluxRate && r.fluxRate) {
+      r.fluxRate.textContent = rateStr;
+      r.fluxRate.className = ratePerSec > 0.0001 ? 'flux-rate' : 'flux-rate zero';
+      L.fluxRate = rateStr;
+    }
+    // Pulse flash: detect a new pulse and toggle the .pulse class.
+    // Using lastPulseT identity prevents re-triggering on the same pulse.
+    const pulseT = LogisticsController.lastPulseT;
+    if (pulseT !== L.lastPulseRendered && pulseT > 0 && r.fluxPulse) {
+      L.lastPulseRendered = pulseT;
+      // Force restart animation: remove class, force reflow, add class
+      r.fluxPulse.classList.remove('pulse');
+      void r.fluxPulse.offsetWidth;
+      r.fluxPulse.classList.add('pulse');
+    }
+  }
+}
+
+/**
+ * Cycle power stance: BALANCED → WEAPONS → SHIELDS
+ */
+function cyclePowerStance() {
+  const stances = ['BALANCED', 'WEAPONS', 'SHIELDS'];
+  const current = game.powerStance || 'BALANCED';
+  const idx = stances.indexOf(current);
+  game.powerStance = stances[(idx + 1) % stances.length];
+  
+  console.log(`Power Stance: ${game.powerStance}`);
+  if (typeof toast === 'function') toast(`⚡ Power: ${game.powerStance}`);
+}
+
+/**
+ * Cycle crew stance: BALANCED → REPAIR → MANNING
+ */
+function cycleCrewStance() {
+  const stances = ['BALANCED', 'REPAIR', 'MANNING'];
+  const current = game.crewStance || 'BALANCED';
+  const idx = stances.indexOf(current);
+  game.crewStance = stances[(idx + 1) % stances.length];
+  
+  console.log(`Crew Stance: ${game.crewStance}`);
+  if (typeof toast === 'function') toast(`👥 Crew: ${game.crewStance}`);
+}
+
+/**
+ * Setup click listeners for HUD interactivity.
+ */
+let _hudListenersAttached = false;
+function setupHUDListeners() {
+  if (_hudListenersAttached) return;  // Prevent duplicates on game restart
+  const powerContainer = document.getElementById('hud-power-container');
+  if (powerContainer) {
+    powerContainer.addEventListener('click', () => {
+      cyclePowerStance();
+      renderLogisticsHUD();
+    });
+  }
+
+  const crewContainer = document.getElementById('hud-crew-container');
+  if (crewContainer) {
+    crewContainer.addEventListener('click', () => {
+      cycleCrewStance();
+      renderLogisticsHUD();
+    });
+  }
+  _hudListenersAttached = true;
+}
+
+// ═══ LOGISTICS CONTROLLER ══════════════════════════════════════════════════════
+// Handles repairs, stances, and economy
+
+const LogisticsController = {
+  lastMaintenanceTime: 0,
+  repairAccumulator: 0,
+  // ✓ FLUX HUD: Timestamp of the most recent repair pulse (used by HUD for green flash)
+  lastPulseT: -1,
+  lastPulseAmount: 0,
+  // ✓ DIAG: Set LogisticsController.debugLog = true in dev console to enable repair logging
+  debugLog: false,
+
+  // ✓ EFFECTIVENESS SNAPSHOT: refreshed once per frame in main loop, read by combat code.
+  // Avoids re-iterating modulesPlaced 8+ times per frame when many turrets exist.
+  _effCache: {
+    frame: -1,
+    powerEff: 1.0,
+    crewEff: 1.0,
+    stance: null,  // result of getStanceMultipliers
+  },
+
+  /**
+   * Returns the cached effectiveness snapshot. Call once per frame in the main
+   * loop (refreshEffectiveness) so combat code reads a coherent value all frame.
+   * Returns: { powerEff, crewEff, stance:{turretDamage, fireRate, shieldRegen, ...} }
+   */
+  getEffectiveness() {
+    return this._effCache;
+  },
+
+  /**
+   * Recompute the effectiveness snapshot. Called once per game frame.
+   * Tagged with a frame-id so accidental double-calls in the same frame are cheap.
+   */
+  refreshEffectiveness(frameId) {
+    if (this._effCache.frame === frameId) return this._effCache;
+    this._effCache.frame = frameId;
+    this._effCache.powerEff = calculatePowerEfficiency();
+    this._effCache.crewEff = calculateCrewEfficiency();
+    this._effCache.stance = this.getStanceMultipliers();
+    return this._effCache;
+  },
+
+  /**
+   * Calculate total repairs per second from ENGINEERING modules.
+   */
+  calculateRepairPool() {    
+    const BASE = 3.0, LEVEL_BONUS = 0.75;
+    let total = 0, count = 0;
+    const levels = [];
+
+    for (const m of game.modulesPlaced) {
+      if (m.type === 'ENGINEERING') {
+        count++;
+        levels.push(m.level);
+        total += BASE + LEVEL_BONUS * (m.level - 1);
+      }
+    }
+
+    return { baseRepairs: total, bayCount: count, moduleLevels: levels };
+  },
+
+  /**
+   * Get stance multipliers for all systems.
+   */
+  getStanceMultipliers() {
+    const ps = game.powerStance || 'BALANCED';
+    const cs = game.crewStance || 'BALANCED';
+
+    let pm = { turretDamage: 1.0, powerDraw: 1.0, shieldRegen: 1.0 };
+    if (ps === 'WEAPONS') {
+      pm.turretDamage = 1.2;
+      pm.powerDraw = 1.15;
+    } else if (ps === 'SHIELDS') {
+      pm.turretDamage = 0.9;
+      pm.shieldRegen = 1.25;
+    }
+
+    let cm = { repairRate: 1.0, fireRate: 1.0 };
+    if (cs === 'REPAIR') {
+      cm.repairRate = 1.4;
+      cm.fireRate = 0.8;
+    } else if (cs === 'MANNING') {
+      cm.repairRate = 0.7;
+      cm.fireRate = 1.3;
+    }
+
+    return {
+      powerStance: ps,
+      crewStance: cs,
+      turretDamage: pm.turretDamage,
+      powerDraw: pm.powerDraw,
+      shieldRegen: pm.shieldRegen,
+      repairRate: cm.repairRate,
+      fireRate: cm.fireRate,
+      combatEfficiency: pm.turretDamage * cm.fireRate,
+      supportEfficiency: cm.repairRate
+    };
+  },
+
+  /**
+   * Apply multiplier to a game value.
+   */
+  applyMultiplier(system, baseValue) {
+    const m = this.getStanceMultipliers();
+
+    switch (system) {
+      case 'turretDamage': return baseValue * m.turretDamage;
+      case 'turretCooldown': return baseValue / m.fireRate;
+      case 'shieldRegen': return baseValue * m.shieldRegen;
+      case 'repairRate': return baseValue * m.repairRate;
+      case 'powerDraw': return baseValue * m.powerDraw;
+      default: return baseValue;
+    }
+  },
+
+  /**
+   * Main maintenance loop: accumulate and distribute repairs.
+   */
+  processMaintenanceLoop(dt) {
+    const result = { repairsDistributed: 0, modulesRepaired: [], priorityUsed: null, timestamp: game.t, salvageUsed: 0 };
+
+    // ✓ HARD STOP: if salvage <= 0, no repairs at all
+    if (game.salvage <= 0) {
+      if (!this._stalledAlerted) {
+        pushAlert('repair-stall', 'REPAIRS STALLED: INSUFFICIENT SALVAGE', 'threat', 2);
+        this._stalledAlerted = true;
+      }
+      return result;
+    }
+    this._stalledAlerted = false;  // Reset flag when salvage becomes available again
+
+    // ✓ DISTRIBUTIVE REPAIR POOL: Each active ENGINEERING module provides 5.0 repair capacity
+    const activeEngineering = game.modulesPlaced.filter(m => m.type === 'ENGINEERING' && !m.disabled);
+    const totalRepairPool = activeEngineering.length * 5.0;
+    
+    if (totalRepairPool <= 0 || activeEngineering.length === 0) return result;
+
+    // ✓ PRIORITY SPLIT: Identify damaged modules.
+    // NOTE: Filter does NOT exclude disabled modules — disabled modules CAN be repaired,
+    // so they can recover. They re-enable once integrity climbs above 20% (hysteresis).
+    const damagedList = game.modulesPlaced.filter(m => (m.integrity ?? 100) < 100);
+    if (damagedList.length === 0) return result;
+
+    // Find reactor (if damaged)
+    // ✓ CRITICAL FIX: Use ?? (nullish coalesce) not || (logical OR)
+    //   so that integrity = 0 is correctly identified as damaged (not full health).
+    const reactor = damagedList.find(m => m.type === 'REACTOR');
+    const reactorDamaged = reactor && (reactor.integrity ?? 100) < 100;
+    
+    // Allocate repair pool
+    let repairAllocation = {};  // module → repair amount per second
+    
+    if (reactorDamaged) {
+      // 50% to reactor, 50% split among others
+      const reactorAlloc = totalRepairPool * 0.5;
+      const otherAlloc = totalRepairPool * 0.5;
+      
+      repairAllocation[damagedList.indexOf(reactor)] = reactorAlloc;
+      
+      const othersCount = damagedList.length - 1;
+      const perModule = othersCount > 0 ? otherAlloc / othersCount : 0;
+      for (let i = 0; i < damagedList.length; i++) {
+        if (damagedList[i] !== reactor) {
+          repairAllocation[i] = perModule;
+        }
+      }
+    } else {
+      // 100% split equally among all damaged modules
+      const perModule = damagedList.length > 0 ? totalRepairPool / damagedList.length : 0;
+      for (let i = 0; i < damagedList.length; i++) {
+        repairAllocation[i] = perModule;
+      }
+    }
+
+    // ✓ REPAIR EXECUTION: Apply repairs every frame (not just per second)
+    // Each 1.0 integrity repaired costs 0.5 Salvage
+    for (let i = 0; i < damagedList.length; i++) {
+      const m = damagedList[i];
+      const allocPerSec = repairAllocation[i] || 0;
+      if (allocPerSec <= 0) continue;
+      
+      const allocThisFrame = allocPerSec * dt;
+      const current = m.integrity ?? 100;
+      const canRepair = Math.min(allocThisFrame, 100 - current);  // don't overfill
+      
+      if (canRepair <= 0) continue;
+      
+      // Fractional salvage spending is allowed.
+      // Prevents frame-based overcharging.
+      const salvageCost = canRepair * 0.5;
+      if (game.salvage <= 0) {
+        // Can't afford this repair; skip it
+        continue;
+      }
+      
+      // Execute repair
+      m.integrity = Math.min(100, current + canRepair);
+      game.salvage -= salvageCost;
+      result.repairsDistributed += canRepair;
+      result.salvageUsed += salvageCost;
+      result.modulesRepaired.push({ type: m.type, repaired: canRepair, integrity: m.integrity });
+      
+      if (LogisticsController.debugLog && canRepair > 0) {
+        const label = m.def?.short || m.type;
+        const loc = `[${m.anchorR},${m.anchorC}]`;
+        console.log(`[Repairs]   → ${label} ${loc} (${m.type}): +${canRepair.toFixed(2)} (cost: ${salvageCost}S) → ${m.integrity.toFixed(1)}%`);
+      }
+    }
+
+    // ✓ RECOMPUTE: Update capacity/manpower if any repairs happened
+    if (result.repairsDistributed > 0) {
+      recomputeStats();
+      // Mark pulse for HUD flash
+      this.lastPulseT = game.t;
+      this.lastPulseAmount = result.repairsDistributed;
+    }
+
+    return result;
+  },
+
+  /**
+   * Get full economy status.
+   */
+  getEconomyStatus() {
+    const pool = this.calculateRepairPool();
+    const mult = this.getStanceMultipliers();
+    const effectiveRepairs = pool.baseRepairs * mult.repairRate;
+    const damaged = game.modulesPlaced.filter(m => (m.integrity ?? 100) < 100);
+
+    return {
+      repairs: {
+        baseRepairsPerSecond: pool.baseRepairs,
+        engineeringBays: pool.bayCount,
+        repairMultiplier: mult.repairRate,
+        effectiveRepairsPerSecond: effectiveRepairs,
+        accumulatedRepairs: this.repairAccumulator
+      },
+      combat: {
+        turretDamageMultiplier: mult.turretDamage,
+        fireRateMultiplier: mult.fireRate,
+        combatEfficiency: mult.combatEfficiency
+      },
+      defense: {
+        shieldRegenMultiplier: mult.shieldRegen
+      },
+      stances: {
+        power: game.powerStance || 'BALANCED',
+        crew: game.crewStance || 'BALANCED'
+      },
+      modules: {
+        damagedCount: damaged.length,
+        totalDamage: damaged.reduce((s, m) => s + (100 - (m.integrity ?? 100)), 0)
+      }
+    };
+  },
+
+  /**
+   * Log status to console.
+   */
+  logStatus() {
+    const s = this.getEconomyStatus();
+    console.group('=== LOGISTICS ===');
+    console.log(`Repairs: ${s.repairs.effectiveRepairsPerSecond.toFixed(2)}/sec`);
+    console.log(`Damage: ×${s.combat.turretDamageMultiplier.toFixed(2)}, Fire: ×${s.combat.fireRateMultiplier.toFixed(2)}`);
+    console.log(`Shield Regen: ×${s.defense.shieldRegenMultiplier.toFixed(2)}`);
+    console.log(`Stances: Power=${s.stances.power}, Crew=${s.stances.crew}`);
+    console.log(`Damaged Modules: ${s.modules.damagedCount} (${s.modules.totalDamage.toFixed(0)} integrity)`);
+    console.groupEnd();
+  }
+};
+
+// ═══ STRUCTURAL DAMAGE SYSTEM ══════════════════════════════════════════════════
+// Module integrity, colony hits, and visual alarms
+
+/**
+ * Initialize module integrity.
+ */
+function initializeModuleIntegrity(module) {
+  if (!module.integrity) {
+    module.integrity = 100;
+  }
+}
+
+function initializeAllIntegrities() {
+  for (const m of game.modulesPlaced) {
+    initializeModuleIntegrity(m);
+  }
+}
+
+/**
+ * Apply colony hit: 20% to reactor, 80% to random module.
+ */
+function applyColonyHit(damage) {
+  const result = {
+    totalDamage: damage,
+    moduleHit: null,
+    moduleDamage: 0,
+    reactorDamage: 0,
+    habDamage: 0,
+    timestamp: game.t
+  };
+
+  // ═══ DAMAGE DISTRIBUTION (20 / 80) ═════════════════════════════════════════
+  //  • 20% to REACTOR integrity  → reduces Capacity via getReactorPowerScalar()
+  //  • 80% to a random non-reactor / non-habitat module → reduces module effectiveness
+  // Each path triggers a critical alert when crossing its threshold for the first time.
+
+  // ── 1. REACTOR CHIP (20%, increased from 10%) ────────────────────────────
+  const reactorChip = damage * 0.20;
+  result.reactorDamage = reactorChip;
+  const reactorMod = game.modulesPlaced.find(m => m.type === 'REACTOR');
+  if (reactorMod) {
+    if (reactorMod.integrity == null) reactorMod.integrity = 100;
+    const prev = reactorMod.integrity;
+    reactorMod.integrity = Math.max(0, reactorMod.integrity - reactorChip);
+    // Mirror to game.reactor for legacy HUD/alerts.
+    game.reactor = reactorMod.integrity;
+
+    if (reactorMod.integrity < 30 && prev >= 30 && !game.alerts.has('reactor-critical')) {
+      game.alerts.set('reactor-critical', {
+        until: game.t + 2,
+        text: '🔴 REACTOR CRITICAL'
+      });
+      renderAlerts();
+    }
+  } else {
+    // Fallback if reactor missing
+    game.reactor = Math.max(0, game.reactor - reactorChip);
+  }
+
+  // ── 2. HABITAT CHIP (removed; previously 10%, now goes to reactor pressure) ─
+  result.habDamage = 0;
+
+  // ── 3. RANDOM NON-REACTOR/NON-HABITAT MODULE (80%) ───────────────────────
+  // (Reactor and Habs were already chipped above; their damage pools are separate.)
+  const moduleDamage = damage * 0.80;
+  const targets = game.modulesPlaced.filter(m => m.type !== 'REACTOR' && m.type !== 'HABITAT');
+
+  if (targets.length > 0) {
+    const target = targets[Math.floor(Math.random() * targets.length)];
+    if (target.integrity == null) target.integrity = 100;
+
+    const variance = 0.8 + Math.random() * 0.4;
+    const actualDamage = moduleDamage * variance;
+    const prevInt = target.integrity;
+
+    target.integrity = Math.max(0, target.integrity - actualDamage);
+    result.moduleHit = target;
+    result.moduleDamage = actualDamage;
+
+    if (target.integrity < 20 && prevInt >= 20) {
+      game.alerts.set(`module-critical-${target.type}`, {
+        until: game.t + 2,
+        text: `⚠ ${target.def.short} CRITICAL`
+      });
+      renderAlerts();
+    }
+  }
+
+  // ✓ Recompute Capacity / Manpower / Load / RequiredCrew from new module healths.
+  recomputeStats();
+  updateStructuralAlarms();
+
+  return result;
+}
+
+/**
+ * Update critical alarm visualization (< 20% integrity).
+ */
+function updateStructuralAlarms() {
+  const grid = game.baseGrid;
+  if (!grid) return;
+
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const cell = grid[r][c];
+      const module = cell.occupiedBy;
+
+      if (module) {
+        const integrity = module.integrity || 100;
+        
+        // ✓ MODULE DISABILITY: mark as disabled if integrity <= 0
+        if (integrity <= 0) {
+          cell.el.classList.add('module-disabled');
+          cell.el.classList.remove('crit-alarm');
+        } else {
+          cell.el.classList.remove('module-disabled');
+          // Apply critical alert if below 20%
+          if (integrity < 20) {
+            cell.el.classList.add('crit-alarm');
+          } else {
+            cell.el.classList.remove('crit-alarm');
+          }
+        }
+      } else {
+        cell.el.classList.remove('crit-alarm');
+        cell.el.classList.remove('module-disabled');
+      }
+    }
+  }
+}
+
+function initializeStructuralAlarms() {
+  updateStructuralAlarms();
+}
+
+/**
+ * Get structural status report.
+ */
+function getStructuralStatus() {
+  let total = 0, count = 0, crit = [], damaged = [];
+
+  for (const m of game.modulesPlaced) {
+    const integrity = m.integrity ?? 100;
+    total += integrity;
+    count++;
+
+    if (integrity < 20) {
+      crit.push({ type: m.type, integrity: Math.round(integrity), name: m.def.short });
+    } else if (integrity < 100) {
+      damaged.push({ type: m.type, integrity: Math.round(integrity), name: m.def.short });
+    }
+  }
+
+  return {
+    reactorHealth: Math.round(game.reactor),
+    moduleCount: count,
+    averageIntegrity: count > 0 ? Math.round(total / count) : 100,
+    criticalCount: crit.length,
+    damagedCount: damaged.length,
+    criticalModules: crit,
+    damagedModules: damaged
+  };
+}
+
+function logStructuralStatus() {
+  const s = getStructuralStatus();
+  console.group('=== STRUCTURAL ===');
+  console.log(`Reactor: ${s.reactorHealth}%`);
+  console.log(`Avg Integrity: ${s.averageIntegrity}%`);
+  console.log(`Critical: ${s.criticalCount}, Damaged: ${s.damagedCount}`);
+  if (s.criticalModules.length > 0) {
+    console.log('Critical:', s.criticalModules.map(m => `${m.name} ${m.integrity}%`).join(', '));
+  }
+  console.groupEnd();
+}
+
+/**
+ * Check for destroyed modules.
+ */
+function checkModuleDestruction() {
+  for (const m of game.modulesPlaced) {
+    if ((m.integrity ?? 100) <= 0) {
+      const type = m.type;
+
+      if (type === 'REACTOR') {
+        game.reactor = 0;
+        pushAlert('reactor-destroyed', 'REACTOR DESTROYED', 'threat', 3);
+        setTimeout(gameOver, 500);
+      }
+
+      if (type === 'COMMAND_DECK') {
+        game.alerts.set('command-destroyed', {
+          until: game.t + 3,
+          text: '🔴 COMMAND DECK DESTROYED'
+        });
+      }
+
+      if (type === 'SHIELD_GEN') {
+        game.colonyShieldMax = 0;
+        game.colonyShield = 0;
+      }
+
+      m.integrity = 0;
+    }
+  }
+}
+
 const fsBtn=document.getElementById('fullscreen-btn'),fsE=document.getElementById('fs-enter'),fsX=document.getElementById('fs-exit');
 fsBtn.addEventListener('click',()=>{const fe=document.documentElement;if(!document.fullscreenElement&&!document.webkitFullscreenElement){const rq=fe.requestFullscreen||fe.webkitRequestFullscreen;if(rq)rq.call(fe).catch(()=>{});}else{const ex=document.exitFullscreen||document.webkitExitFullscreen;if(ex)ex.call(document).catch(()=>{});}});
 function updFs(){const f=!!(document.fullscreenElement||document.webkitFullscreenElement);fsE.style.display=f?'none':'';fsX.style.display=f?'':'none';}
