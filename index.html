@@ -75,8 +75,8 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 .drone-alloc-prog .building-ct{color:#ffd24a}  /* amber = being fabricated */
 .drone-alloc-prog .sep{color:var(--text-dim);margin:0 1px}
 .drone-alloc-ctrl{display:flex;align-items:center;gap:2px}
-.drone-adj-btn{width:16px;height:16px;background:rgba(79,195,247,.1);border:1px solid rgba(79,195,247,.3);
-  color:var(--ally);font-size:11px;line-height:1;cursor:pointer;
+.drone-adj-btn{width:24px;height:24px;background:rgba(79,195,247,.1);border:1px solid rgba(79,195,247,.3);
+  color:var(--ally);font-size:14px;line-height:1;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
   border-radius:2px;transition:all .12s;padding:0;font-family:var(--mono);user-select:none}
 .drone-adj-btn:hover{background:rgba(79,195,247,.25);border-color:var(--ally)}
@@ -1398,7 +1398,7 @@ function spawnRaider(opts){
     pushAlert('raider',isArtifact?'ARTIFACT SIGNATURE':'RAIDER DETECTED','threat',5.25);
   }
 }
-function spawnMissile(x,y,tx,ty){const a=Math.atan2(ty-y,tx-x),sp=224;game.missiles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,angle:a,life:5,age:0});}
+function spawnMissile(x,y,tx,ty){const a=Math.atan2(ty-y,tx-x),sp=179;game.missiles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,angle:a,life:5,age:0});}
 function fireBullet(){
   const s=game.ship;if(!s)return;
   if(game.t-game.lastFireT<FIRE_COOLDOWN)return;game.lastFireT=game.t;
@@ -1536,6 +1536,11 @@ function startRun(){
   initBaseGrid();recomputeStats();refreshBMUI();setupHUDListeners();
   // ✓ Initialize module integrity
   initializeAllIntegrities();
+  // ✓ STARTER DRONES: Set allocations to 1 each so the system auto-fabricates them
+  // The DroneSystem.update() will queue and build them at normal speed. UI will show 0/1 → 1/1 as they complete.
+  game.droneAllocations.harvester = 1;
+  game.droneAllocations.defense   = 1;
+  game.droneAllocations.repair    = 1;
   document.getElementById('main-menu').hidden=true;document.getElementById('game-over').hidden=true;
   document.getElementById('base-menu').classList.remove('open');setFireMode('fire');
   for(let i=0;i<3;i++)game.asteroids.push(newAst(rand(W*.55,W-80),rand(PLAY_TOP+60,PLAY_BOTTOM-60),'large',rand(-50,-15),rand(-20,20)));
@@ -1796,7 +1801,29 @@ function updateBullets(dt){
     for(let j=game.asteroids.length-1;j>=0;j--){const a=game.asteroids[j];if(dist(b.x,b.y,a.x,a.y)<a.r){let dm=b.allied?(b.damage!=null?b.damage:TURRET_DMG):1;const isMarkedHit=(b.allied||b.playerOwned)&&a.isMarked;if(isMarkedHit){const bonus=getSensorDamageBonus();dm*=(1+bonus);}a.hp-=dm;a.flash=0.2;emitExp(b.x,b.y,6,isMarkedHit?'#ffeb3b':'#9be7ff');if(a.hp<=0){if(a.isMarked)clearMarkById(a._uid);splitAst(a);game.asteroids.splice(j,1);}hit=true;break;}}
     if(hit){game.bullets.splice(i,1);continue;}
     for(let ri=game.raiders.length-1;ri>=0;ri--){const r=game.raiders[ri];if(dist(b.x,b.y,r.x,r.y)<26){let dm=b.allied?(b.damage!=null?b.damage:TURRET_DMG):1;const isMarkedHit=(b.allied||b.playerOwned)&&r.isMarked;if(isMarkedHit){const bonus=getSensorDamageBonus();dm*=(1+bonus);}r.hp-=dm;r.flash=0.2;emitExp(b.x,b.y,8,isMarkedHit?'#ff6b00':'#ffcc55');if(r.hp<=0){if(r.isMarked)clearMarkById(r._uid);SFX.raiderDestroyed();emitExp(r.x,r.y,30,'#ff6b3d');for(let k=0;k<3;k++)spawnPickup(r.x+rand(-12,12),r.y+rand(-12,12),'tech',(rand(4,7))|0);game.raidersDefeated++;game.killsRaider++;const rRole=r.role;game.raiders.splice(ri,1);game.raider=game.raiders[0]||null;if(game.raiders.length===0)clearAlert('raider');const minWait=2,maxWait=Math.max(3,20-(game.gt/60));if(rRole==='colony')game.raiderRespawnAt=game.gt+rand(minWait,maxWait);else if(rRole==='ship')game.raiderRespawnAt2=game.gt+rand(minWait,maxWait);else game.raiderRespawnAt3=game.gt+rand(minWait,maxWait);pushAlert('rd','RAIDER DESTROYED','info',3.75);}game.bullets.splice(i,1);hit=true;break;}}
-    for(let m=game.missiles.length-1;m>=0;m--){const ms=game.missiles[m];if(dist(b.x,b.y,ms.x,ms.y)<10){emitExp(ms.x,ms.y,10,'#ff7755');game.missiles.splice(m,1);game.bullets.splice(i,1);hit=true;break;}}
+    // ── POINT-DEFENSE: allied/player bullets intercept enemy missiles ────────────
+    // Only allied projectiles (turrets, defense drones, player) can shoot down missiles.
+    // Enemy bullets pass through missiles to avoid friendly-fire paradoxes.
+    if (b.allied || b.playerOwned) {
+      let intercepted = false;
+      for (let m = game.missiles.length - 1; m >= 0; m--) {
+        const ms = game.missiles[m];
+        const dx = b.x - ms.x, dy = b.y - ms.y;
+        if (dx*dx + dy*dy < 14*14) {
+          // Flak burst: white-cyan flash at intercept point
+          emitExp(ms.x, ms.y, 14, '#ffffff');
+          emitExp(ms.x, ms.y, 10, '#4fc3f7');
+          // Small debris sparks
+          for (let k = 0; k < 5; k++) {
+            game.particles.push({x:ms.x,y:ms.y,vx:rand(-90,90),vy:rand(-90,90),life:rand(.2,.5),age:0,size:rand(1,2),color:'#ffcc55'});
+          }
+          game.missiles.splice(m, 1);
+          intercepted = true;
+          break;
+        }
+      }
+      if (intercepted) { game.bullets.splice(i, 1); hit = true; }
+    }
     if(hit)continue;
     // Enemy bullets can hit player drones
     if(game.drones.length>0&&checkBulletDroneCollisions(b,i)){game.bullets.splice(i,1);continue;}
@@ -2014,11 +2041,44 @@ function updateParticles(dt){for(let i=game.particles.length-1;i>=0;i--){const p
 function updateStars(dt){for(const s of game.stars){s.x-=s.sp*dt*.5;if(s.x<-2){s.x=W+2;s.y=Math.random()*H;}}}
 
 // ═══ TURRET AI ════════════════════════════════════════════════════════════════
+// Point-defense envelope: missiles within this radius of the colony center get
+// highest priority regardless of which turret is doing the targeting.
+const PD_MISSILE_ENVELOPE = 420; // px from COLONY_X/Y
+
 function pickTurretTarget(ox,oy){
-  // Find nearest raider within range
+  // ── Priority 0: Sensor Array override ──────────────────────────────────────
+  // If ANY sensor has a locked target AND it's within turret range, focus it first.
+  const sensorTgts = getAllSensorMarkedTargets();
+  for (const st of sensorTgts) {
+    const sd = dist(ox, oy, st.x, st.y);
+    if (sd <= TURRET_RANGE) return { obj: st, kind: game.raiders.includes(st) ? 'raider' : 'asteroid' };
+  }
+
+  // ── Priority 1: Incoming missiles inside the point-defense envelope ─────────
+  // Use dist-squared for performance; pick the closest threatening missile.
+  let nearestMissile = null, nearestMissileDsq = Infinity;
+  const colEdge = HANGAR_X; // rightmost colony edge X (~450)
+  for (const ms of game.missiles) {
+    // Only treat missiles heading toward the colony (vx < 0 = moving left toward base)
+    if (ms.vx >= 0) continue;
+    const dxC = ms.x - COLONY_X, dyC = ms.y - COLONY_Y;
+    const envelopeDsq = PD_MISSILE_ENVELOPE * PD_MISSILE_ENVELOPE;
+    if (dxC*dxC + dyC*dyC > envelopeDsq) continue; // outside envelope
+    const dxT = ms.x - ox, dyT = ms.y - oy;
+    const dsq = dxT*dxT + dyT*dyT;
+    if (dsq <= TURRET_RANGE * TURRET_RANGE && dsq < nearestMissileDsq) {
+      nearestMissileDsq = dsq;
+      nearestMissile = ms;
+    }
+  }
+  if (nearestMissile) return { obj: nearestMissile, kind: 'missile' };
+
+  // ── Priority 2: Nearest raider within range ─────────────────────────────────
   let nearestRaider=null,nearestRaiderDist=Infinity;
   for(const r of game.raiders){const d=dist(ox,oy,r.x,r.y);if(d<=TURRET_RANGE&&d<nearestRaiderDist){nearestRaiderDist=d;nearestRaider=r;}}
   if(nearestRaider)return{obj:nearestRaider,kind:'raider'};
+
+  // ── Priority 3: Incoming asteroids ─────────────────────────────────────────
   let best=null,bestS=-Infinity;
   for(const a of game.asteroids){const d=dist(ox,oy,a.x,a.y);if(d>TURRET_RANGE)continue;const incoming=a.vx<0||d<220;if(!incoming)continue;const sc=(TURRET_RANGE-d)+(a.size==='large'?80:a.size==='medium'?40:0);if(sc>bestS){bestS=sc;best=a;}}
   return best?{obj:best,kind:'asteroid'}:null;
@@ -3580,7 +3640,7 @@ function initBaseGrid(){
     cell.addEventListener('mouseenter',()=>hoverCell(r,c));cell.addEventListener('mouseleave',()=>clearHover());cell.addEventListener('click',()=>clickCell(r,c));
     grid.appendChild(cell);row.push({el:cell,occupiedBy:null});}game.baseGrid.push(row);}
   placeModule('REACTOR',5,5,true);
-  placeAtSlot('POINT_DEFENSE','top',4);placeAtSlot('POINT_DEFENSE','bottom',4);placeAtSlot('SHIELD_GEN','top',3);placeAtSlot('SENSOR_ARRAY','bottom',3);
+  placeAtSlot('POINT_DEFENSE','top',4);placeAtSlot('POINT_DEFENSE','bottom',4);placeAtSlot('SHIELD_GEN','top',3);placeAtSlot('SENSOR_ARRAY','bottom',3);placeAtSlot('DRONE_BAY','top',2);
   // ✓ STARTER MODULES (FREE): 1 ENGINEERING + 1 MED_BAY + 2 HABITATs.
   // Placed without cost-check so they always appear regardless of resource state.
   // Order matters: ENGINEERING first so repair system is online before HABITATs (which feed crew capacity)
@@ -4844,11 +4904,24 @@ function updateDefenseDrone(d, dt) {
       // Each drone picks the closest threat not already claimed by another defense drone.
       let bestThreat = null, bestD = DEFENSE_TRACK_R;
 
+      // Priority 0: incoming missiles inside the point-defense envelope (highest urgency)
+      const pdEnvSq = PD_MISSILE_ENVELOPE * PD_MISSILE_ENVELOPE;
+      for (const ms of game.missiles) {
+        if (ms.vx >= 0) continue; // only missiles heading toward colony
+        const dxC = ms.x - COLONY_X, dyC = ms.y - COLONY_Y;
+        if (dxC*dxC + dyC*dyC > pdEnvSq) continue; // outside envelope
+        if (defenseTargetClaimed(d, ms)) continue;
+        const dd = dist(d.x, d.y, ms.x, ms.y);
+        if (dd < bestD) { bestD = dd; bestThreat = ms; }
+      }
+
       // Priority 1: raiders
-      for (const r of game.raiders) {
-        if (defenseTargetClaimed(d, r)) continue;
-        const dd = dist(d.x, d.y, r.x, r.y);
-        if (dd < bestD) { bestD = dd; bestThreat = r; }
+      if (!bestThreat) {
+        for (const r of game.raiders) {
+          if (defenseTargetClaimed(d, r)) continue;
+          const dd = dist(d.x, d.y, r.x, r.y);
+          if (dd < bestD) { bestD = dd; bestThreat = r; }
+        }
       }
       // Priority 2: any asteroid (all sizes, no direction restriction)
       if (!bestThreat) {
@@ -4873,7 +4946,9 @@ function updateDefenseDrone(d, dt) {
 
       // --- Target validation ---
       if (!tgt) { d.state = 'idle'; break; }
-      const stillAlive = game.raiders.includes(tgt) || game.asteroids.includes(tgt);
+      // Missile targets are valid as long as they're still in the active missiles array.
+      const isMissileTgt = game.missiles.includes(tgt);
+      const stillAlive = isMissileTgt || game.raiders.includes(tgt) || game.asteroids.includes(tgt);
       if (!stillAlive) {
         d.targetId = null;
         d._runPhase = 'attack';
@@ -4881,9 +4956,25 @@ function updateDefenseDrone(d, dt) {
         break;
       }
 
+      // Mid-intercept: if an incoming missile entered the envelope, override non-missile target.
+      if (!isMissileTgt) {
+        const pdEnvSq = PD_MISSILE_ENVELOPE * PD_MISSILE_ENVELOPE;
+        for (const ms of game.missiles) {
+          if (ms.vx >= 0) continue;
+          const dxC = ms.x - COLONY_X, dyC = ms.y - COLONY_Y;
+          if (dxC*dxC + dyC*dyC <= pdEnvSq && !defenseTargetClaimed(d, ms)) {
+            d.targetId  = ms;
+            d._runPhase = 'attack';
+            d._passSign = 1;
+            break;
+          }
+        }
+      }
+
       // CASE A mid-intercept: if sensor marks exist, enforce round-robin reassignment.
+      // Exception: a drone already chasing a missile stays on it — missiles are highest priority.
       const markedTargets = getAllSensorMarkedTargets();
-      if (markedTargets.length > 0) {
+      if (markedTargets.length > 0 && !isMissileTgt) {
         const defenseDrones = game.drones.filter(o => o.type === 'defense');
         const myIdx = defenseDrones.indexOf(d);
         const assignedTgt = markedTargets[myIdx % markedTargets.length];
@@ -4927,15 +5018,21 @@ function updateDefenseDrone(d, dt) {
         const aimX = tgt.x + (tgt.vx || 0) * tof;
         const aimY = tgt.y + (tgt.vy || 0) * tof;
 
-        // Fire window: within DEFENSE_FIRE_RANGE of target during the run
-        if (toTgtD < DEFENSE_FIRE_RANGE && d._fireCooldown <= 0) {
+        // Fire window: missiles are small fast targets — open fire from further out
+        // to give more shots during the pass. Standard targets use DEFENSE_FIRE_RANGE.
+        const fireRange = isMissileTgt ? DEFENSE_FIRE_RANGE * 1.5 : DEFENSE_FIRE_RANGE;
+        // Fire rate boost vs missiles: they move fast and need more rounds on target
+        const fireRate  = isMissileTgt ? DEFENSE_FIRE_RATE * 1.8  : DEFENSE_FIRE_RATE;
+        if (toTgtD < fireRange && d._fireCooldown <= 0) {
           const angle = Math.atan2(aimY - d.y, aimX - d.x);
           fireAlliedBullet(d.x, d.y, angle, DEFENSE_DMG);
-          d._fireCooldown = 1 / DEFENSE_FIRE_RATE;
+          d._fireCooldown = 1 / fireRate;
         }
 
-        // Commit to loop when close enough (pass-by threshold)
-        if (toTgtD < DEFENSE_PASS_R) {
+        // Commit to loop when close enough (pass-by threshold).
+        // Missiles are smaller than raiders; commit pass sooner so we don't overshoot.
+        const passR = isMissileTgt ? DEFENSE_PASS_R * 1.5 : DEFENSE_PASS_R;
+        if (toTgtD < passR) {
           d._runPhase   = 'loop';
           d._passSign   = -d._passSign;           // next pass on the opposite side
           d._loopAngle0 = Math.atan2(d.vy, d.vx); // velocity angle at commit
@@ -4983,9 +5080,10 @@ function updateDefenseDrone(d, dt) {
         }
       }
 
-      // Drop target if sensor lock is gone AND target left autonomous range
+      // Drop target if sensor lock is gone AND target left autonomous range.
+      // Missile targets are always within-envelope by construction; don't evict them.
       const activelySensorLocked = getAllSensorMarkedTargets().includes(tgt);
-      if (!activelySensorLocked && toTgtD > DEFENSE_TRACK_R * 1.4) {
+      if (!isMissileTgt && !activelySensorLocked && toTgtD > DEFENSE_TRACK_R * 1.4) {
         d.targetId = null;
         d._runPhase = 'attack';
         d.state = 'patrol';
@@ -5202,15 +5300,15 @@ function drawDrones() {
         const isLooping     = d.state === 'intercepting' && d._runPhase === 'loop';
         const sensorLocked  = d.state === 'intercepting' && d.targetId && d.targetId.isMarked;
         const pulse = 0.6 + 0.4 * Math.sin(t * 6 + d.id);
-        // Body glow: red on attack run, amber on loop, dim on patrol
+        // Body glow: bright cyan on attack, light blue on loop, dim on patrol
         const bodyGlowA = isAttacking ? 0.65 * pulse : (isLooping ? 0.35 : 0.2);
-        const bodyColor = isAttacking ? `rgba(255,80,80,${bodyGlowA})`
-                        : isLooping   ? `rgba(255,140,60,${bodyGlowA})`
-                        :               `rgba(255,80,80,${bodyGlowA})`;
+        const bodyColor = isAttacking ? `rgba(79,195,247,${bodyGlowA})`
+                        : isLooping   ? `rgba(155,231,255,${bodyGlowA})`
+                        :               `rgba(79,195,247,${bodyGlowA})`;
         ctx.shadowColor = bodyColor;
         ctx.shadowBlur  = isAttacking ? 14 * pulse : 7;
-        ctx.fillStyle   = 'rgba(200,80,60,0.8)';
-        ctx.strokeStyle = isAttacking ? '#ff5252' : (isLooping ? '#ffb74d' : '#c0504a');
+        ctx.fillStyle   = 'rgba(100,180,220,0.85)';
+        ctx.strokeStyle = isAttacking ? '#4fc3f7' : (isLooping ? '#9be7ff' : '#4fc3f7');
         ctx.lineWidth   = 1.2;
         // Main body diamond
         ctx.beginPath();
@@ -5223,7 +5321,7 @@ function drawDrones() {
         ctx.stroke();
         // Wing tips — swept back further during loop for visual flair
         const wingExt = isLooping ? 13 : 10;
-        ctx.fillStyle = isAttacking ? 'rgba(255,120,80,0.7)' : 'rgba(255,120,80,0.45)';
+        ctx.fillStyle = isAttacking ? 'rgba(79,195,247,0.7)' : 'rgba(79,195,247,0.45)';
         ctx.beginPath();
         ctx.moveTo( 2, 4); ctx.lineTo(-3, wingExt); ctx.lineTo(-5, 4);
         ctx.closePath(); ctx.fill();
@@ -5233,21 +5331,21 @@ function drawDrones() {
         // Status pip: bright red on attack, amber cycling on loop, sensor-lock gets cyan ring
         const pipR = sensorLocked ? 3.0 : 2.2;
         const pipColor = isAttacking
-          ? `rgba(255,80,80,${pulse})`
+          ? `rgba(79,195,247,${pulse})`
           : isLooping
-            ? `rgba(255,160,60,${0.55 + 0.45 * Math.sin(t * 12 + d.id)})` // faster flicker on loop
-            : `rgba(255,160,80,${0.4 + 0.3 * pulse})`;
+            ? `rgba(200,240,255,${0.55 + 0.45 * Math.sin(t * 12 + d.id)})` // lighter flicker on loop
+            : `rgba(155,231,255,${0.4 + 0.3 * pulse})`;
         ctx.fillStyle   = pipColor;
-        ctx.shadowColor = isAttacking ? '#ff5252' : '#ffb74d';
+        ctx.shadowColor = isAttacking ? '#4fc3f7' : '#9be7ff';
         ctx.shadowBlur  = isAttacking ? 8 : 5;
         ctx.beginPath();
         ctx.arc(5, 0, pipR, 0, Math.PI * 2);
         ctx.fill();
-        // Sensor-lock outer ring (cyan)
+        // Sensor-lock outer ring (white ring on allied blue)
         if (sensorLocked) {
-          ctx.strokeStyle = `rgba(79,195,247,${0.6 + 0.4 * pulse})`;
+          ctx.strokeStyle = `rgba(255,255,255,${0.6 + 0.4 * pulse})`;
           ctx.lineWidth   = 1;
-          ctx.shadowColor = 'rgba(79,195,247,0.7)';
+          ctx.shadowColor = 'rgba(255,255,255,0.7)';
           ctx.shadowBlur  = 6;
           ctx.beginPath();
           ctx.arc(5, 0, pipR + 2.5, 0, Math.PI * 2);
