@@ -677,8 +677,8 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
 /* ── CLAIRE tab dual-column layout ──────────────────────────────────────── */
 #claire-cols { display: flex; gap: 12px; flex: 1; min-height: 0; }
 .claire-col  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-/* Incident log: always open in two-column layout */
-#claire-log { display: flex; flex-direction: column-reverse; gap: 5px;
+/* Incident log: always open in two-column layout — newest at top */
+#claire-log { display: flex; flex-direction: column; gap: 5px;
   max-height: 320px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 #claire-log-section-header { margin-bottom: 4px; }
 /* ── Incident log bracket color coding ──────────────────────────────────── */
@@ -1136,7 +1136,8 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
   display:flex;flex-direction:column;gap:5px;pointer-events:none;z-index:200}
 .toast{padding:6px 14px;background:rgba(8,18,28,.95);border:1px solid var(--warn);
   color:var(--warn);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
-  box-shadow:0 0 12px rgba(255,183,77,.28);animation:toastIn .2s ease-out;white-space:nowrap}
+  box-shadow:0 0 12px rgba(255,183,77,.28);animation:toastIn .2s ease-out;
+  white-space:normal;max-width:340px;text-align:center;line-height:1.4}
 .toast.fadeout{animation:toastOut .3s ease-in forwards}
 @keyframes toastIn{from{transform:translateY(6px);opacity:0}to{transform:translateY(0);opacity:1}}
 @keyframes toastOut{to{transform:translateY(-6px);opacity:0}}
@@ -4277,7 +4278,6 @@ canvas#game{display:block;width:100%;height:100%;object-fit:fill}
               <div id="claire-log-section">
                 <div id="claire-log-section-header">
                   <span>INCIDENT LOG</span>
-                  <button id="claire-log-btn">▾</button>
                 </div>
                 <div id="claire-log">
                   <div id="claire-log-entries"></div>
@@ -6869,7 +6869,22 @@ function acquireBullet(){
   }
   return null;
 }
-function spawnPickup(x,y,kind,amt){const a=Math.random()*Math.PI*2;game.pickups.push({x,y,vx:Math.cos(a)*rand(10,40),vy:Math.sin(a)*rand(10,40),kind,amt,life:18,age:0,pulse:Math.random()*Math.PI*2});}
+function spawnPickup(x,y,kind,amt){
+  const a = Math.random() * Math.PI * 2;
+  const spd = rand(30, 110); // was 10-40 — wider scatter for loot explosion feel
+  // Strong leftward bias baked into spawn: colony is always left, so pickups
+  // naturally drift toward the player's return path.
+  const vxBias = -rand(20, 55); // leftward kick on top of random scatter
+  game.pickups.push({
+    x, y,
+    vx: Math.cos(a) * spd + vxBias,
+    vy: Math.sin(a) * spd,
+    kind, amt,
+    life: 36,  // was 18 — double lifetime
+    age: 0,
+    pulse: Math.random() * Math.PI * 2,
+  });
+}
 function emitExp(x,y,r,col){
   const n=12+(r/4)|0;
   for(let i=0;i<n;i++){
@@ -7459,7 +7474,8 @@ const CLAIRE = (() => {
     entries.innerHTML = '';
     for (let i = _log.length - 1; i >= 0; i--) {
       const row = document.createElement('div');
-      row.className = 'claire-log-entry ' + _logColorClass(_log[i].text);
+      const _cc = _log[i].colorClass || _logColorClass(_log[i].text);
+      row.className = 'claire-log-entry ' + _cc;
       // Split bracket prefix from rest of text for color targeting
       const bracketMatch = _log[i].text.match(/^(\[[^\]]+\])\s*(.*)/s);
       const t = document.createElement('span');
@@ -7564,36 +7580,22 @@ const CLAIRE = (() => {
     _logImmediate(text) {
       _log_push(text, true);
     },
+    // Log a game event with an explicit color class (bypasses keyword detection)
+    _logEvent(text, colorClass) {
+      _log.push({ time: _fmtGt(), text, colorClass });
+      if (_log.length > _LOG_MAX) _log.shift();
+      _unreadCount++;
+      _updateCommsBtn();
+      _renderLog();
+    },
 
     initUI() {
-      const logBtn   = document.getElementById('claire-log-btn');
-      const logPanel = document.getElementById('claire-log');
-
       // Wire comms link button
       const commsBtn = document.getElementById('hud-claire-comms');
       if (commsBtn) {
         commsBtn.addEventListener('click', () => {
           if (typeof openCommsLink === 'function') openCommsLink();
         });
-      }
-
-      function closeLog() {
-        if (logPanel) logPanel.style.display = 'none';
-        if (logBtn)   logBtn.textContent = '▾';
-      }
-      function openLog() {
-        if (logPanel) { logPanel.style.display = 'block'; _renderLog(); }
-        if (logBtn)   logBtn.textContent = '▴';
-      }
-      if (logBtn) logBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        logPanel?.style.display !== 'none' ? closeLog() : openLog();
-      });
-      // Swipe-up to dismiss log
-      if (logPanel) {
-        let _ty = 0;
-        logPanel.addEventListener('touchstart', e => { _ty = e.touches[0].clientY; }, { passive: true });
-        logPanel.addEventListener('touchend',   e => { if (_ty - e.changedTouches[0].clientY > 40) closeLog(); }, { passive: true });
       }
     },
   };
@@ -7643,7 +7645,7 @@ function renderAlerts(){
     }
   });
 }
-function toast(text){const el=document.getElementById('toasts'),d=document.createElement('div');d.className='toast';d.textContent=text;el.appendChild(d);setTimeout(()=>d.classList.add('fadeout'),1600);setTimeout(()=>d.remove(),2000);}
+function toast(text){const el=document.getElementById('toasts'),d=document.createElement('div');d.className='toast';d.textContent=text;el.appendChild(d);setTimeout(()=>d.classList.add('fadeout'),3200);setTimeout(()=>d.remove(),3800);}
 
 // ═══ INPUT ════════════════════════════════════════════════════════════════════
 window.addEventListener('keydown',e=>{
@@ -8901,7 +8903,7 @@ function updateBullets(dt){
           // Veteran drops 1.5× tech — earned by surviving the shield
           const _dropCount = r._veteran ? 6 : r._gunship ? 7 : 4;
           const _dropAmt = r._veteran ? (rand(7, 11) | 0) : r._gunship ? (rand(8, 13) | 0) : (rand(5, 8) | 0);
-          for (let k = 0; k < _dropCount; k++) spawnPickup(r.x + rand(-16, 16), r.y + rand(-16, 16), 'tech', _dropAmt);
+          for (let k = 0; k < _dropCount; k++) spawnPickup(r.x + rand(-50, 50), r.y + rand(-50, 50), 'tech', _dropAmt);
           if (r._gunship) emitExp(r.x, r.y, 45, '#4a90d9');
           game.raidersDefeated++; game.killsRaider++; _fsRaiderKill(r);
           // Salvage scraps from destroyed raider hull
@@ -9574,6 +9576,7 @@ function _epSpawnSubWave(majorTier, subPhase) {
 
   const _waveName = (majorTier + 1) + '.' + subPhase;
   pushAlert('artifact', _waveName + ' — WARPING IN', 'info', 3);
+  if (typeof CLAIRE !== 'undefined') CLAIRE._logEvent(`[INCURSION] Drift T${_waveName} — unauthorized entry. Shift targets: disrupted.`, 'log-arty');
   SFX.artyKlaxon && SFX.artyKlaxon();
   // Brief screen shake + haptic — sub-tier arrival is a significant threat
   game.hudShakeUntil = game.t + 0.4;
@@ -9751,7 +9754,7 @@ function updateRaider(dt){
         }
         emitExp(r.x, r.y, 30, '#ff8c00'); emitExp(r.x, r.y, 20, '#ffffff');
         for (let _k = 0; _k < 10; _k++) { const _a = Math.random() * Math.PI * 2, _s = rand(80, 280); game.particles.push({ x: r.x, y: r.y, vx: Math.cos(_a) * _s, vy: Math.sin(_a) * _s, life: rand(0.4, 1.0), age: 0, size: rand(2, 4), color: Math.random() < 0.5 ? '#ff8c00' : '#ffffff' }); }
-        for (let k = 0; k < 5; k++) spawnPickup(r.x + rand(-14, 14), r.y + rand(-14, 14), 'tech', (rand(6, 10)) | 0);
+        for (let k = 0; k < 5; k++) spawnPickup(r.x + rand(-55, 55), r.y + rand(-55, 55), 'tech', (rand(6, 10)) | 0);
         if (r.isMarked && r._uid) clearMarkById(r._uid);
         game.raidersDefeated++; game.killsRaider++; _fsRaiderKill(r);
         game.raiders.splice(ri, 1);
@@ -9772,7 +9775,7 @@ function updateRaider(dt){
         emitExp(r.x, r.y, 80, '#ff6b3d');
         emitExp(r.x, r.y, 50, '#ffffff');
         for (let k = 0; k < 8; k++)
-          spawnPickup(r.x + rand(-20,20), r.y + rand(-20,20), 'tech', (rand(9,17))|0);
+          spawnPickup(r.x + rand(-60,60), r.y + rand(-60,60), 'tech', (rand(9,17))|0);
         game.killsRaider++; _fsRaiderKill(r);
         game.artifactRaiderActive = false;
         // ── CAPACITOR FEEDBACK AUGMENT DROP ───────────────────────────────
@@ -10611,7 +10614,7 @@ function updateMissiles(dt){
             // Veteran drops 1.5× tech; gunship drops heavy salvage
             const _dropCount = r._veteran ? 6 : r._gunship ? 7 : 4;
             const _dropAmt = r._veteran ? (rand(7, 11) | 0) : r._gunship ? (rand(8, 13) | 0) : (rand(5, 8) | 0);
-            for (let k = 0; k < _dropCount; k++) spawnPickup(r.x + rand(-16, 16), r.y + rand(-16, 16), 'tech', _dropAmt);
+            for (let k = 0; k < _dropCount; k++) spawnPickup(r.x + rand(-50, 50), r.y + rand(-50, 50), 'tech', _dropAmt);
             if (r._gunship) emitExp(r.x, r.y, 45, '#4a90d9');
             game.raidersDefeated++; game.killsRaider++; _fsRaiderKill(r);
             const rRole=r.role;game.raiders.splice(ri,1);game.raider=game.raiders[0]||null;
@@ -11788,14 +11791,10 @@ function updateSpatialAnomalies(dt) {
           // Tidal DoT — hull damage proportional to depth inside well
           // Engine T3+ reduces anomaly penalty per upgrade track description
           const _anomalyResist = game.ship._evadeChance > 0 ? 0.5 : 1.0; // engine T2+ gives partial resist
-          const _dot = (6 + _fall * 12) * _anomalyResist; // 6-18 HP/s, reduced by engine upgrade
+          const _dot = (6 + _fall * 12) * _anomalyResist;
           damageShip(_dot * dt, 'anomaly');
-          // Flash the ship hull briefly so the player notices
-          if (!game.ship._wellFlashCd || game.ship._wellFlashCd <= 0) {
-            game.ship.hitFlash = Math.min(1, (game.ship.hitFlash || 0) + 0.15);
-            game.ship._wellFlashCd = 0.2;
-          }
-          game.ship._wellFlashCd = (game.ship._wellFlashCd || 0) - dt;
+          // No hitFlash here — that covers the whole canvas in red.
+          // The ship HP bar draining is sufficient feedback.
         }
       }
 
@@ -12709,7 +12708,7 @@ function updateJumpHUD() {
   }
 }
 
-const PICKUP_DRIFT_VX  = 18;
+const PICKUP_DRIFT_VX  = 54;  // was 18 — 3× stronger leftward pull toward colony
 const PICKUP_SOFT_LEFT = PLAY_LEFT + 30;  // drift softens below this X
 
 function updatePickups(dt){
@@ -12739,6 +12738,49 @@ function updatePickups(dt){
 
     p.vx*=drag;p.vy*=drag;
     p.x+=p.vx*dt;p.y+=p.vy*dt;
+
+    // ── Gravity well pickup interaction ───────────────────────────────────────
+    // Wells influence nearby pickups: orbital capture, gentle ejection, or
+    // center hold. Probability split: 60% orbit, 30% eject, 10% hold.
+    if (game.driftingAnomalies) {
+      for (const an of game.driftingAnomalies) {
+        if (an.kind !== 'well') continue;
+        const _wdx = an.x - p.x, _wdy = an.y - p.y;
+        const _wd2 = _wdx * _wdx + _wdy * _wdy;
+        const _pullR2 = an.pullR * an.pullR;
+        if (_wd2 >= _pullR2 * 1.5 || _wd2 < 1) continue; // outside influence zone
+        const _wd = Math.sqrt(_wd2);
+        const _fall = 1 - (_wd / (an.pullR * 1.2)); // 0 at edge, 1 at center
+
+        if (!p._gwMode) {
+          // First contact — assign behaviour mode
+          const _roll = Math.random();
+          p._gwMode = _roll < 0.6 ? 'orbit' : _roll < 0.9 ? 'eject' : 'hold';
+          p._gwAngle = Math.atan2(_wdy, _wdx) + Math.PI / 2; // tangent angle for orbit
+        }
+        if (p._gwMode === 'orbit') {
+          // Elliptical orbit: tangential nudge + gentle inward pull
+          const _tangX = -_wdy / _wd, _tangY = _wdx / _wd;
+          p.vx += (_tangX * 60 + _wdx / _wd * 20) * _fall * dt;
+          p.vy += (_tangY * 60 + _wdy / _wd * 20) * _fall * dt;
+        } else if (p._gwMode === 'eject') {
+          // Gentle outward push — away from well, any direction, moderate speed
+          const _outX = -_wdx / _wd, _outY = -_wdy / _wd;
+          const _ejectStrength = 80 + _fall * 120; // faster near center
+          p.vx += _outX * _ejectStrength * dt;
+          p.vy += _outY * _ejectStrength * dt;
+          // Eject mode ends once far enough away
+          if (_fall < 0.15) p._gwMode = null;
+        } else { // hold
+          // Draw toward center slowly — captured pickup swirls in
+          p.vx += _wdx / _wd * 40 * _fall * dt;
+          p.vy += _wdy / _wd * 40 * _fall * dt;
+        }
+        // Speed cap — wells don't fire pickups like projectiles
+        const _spd = Math.hypot(p.vx, p.vy);
+        if (_spd > 220) { p.vx = p.vx / _spd * 220; p.vy = p.vy / _spd * 220; }
+      }
+    }
 
     // Expire on age OR on drifting fully past the soft boundary.
     // Silent splice — matches existing age-expiry behaviour, no particle burst.
@@ -15819,11 +15861,11 @@ function _spawnExoticMatter(x, y) {
   const angle = Math.random() * Math.PI * 2;
   game.exoticPickups.push({
     x, y,
-    vx: Math.cos(angle) * rand(20, 55),
+    vx: Math.cos(angle) * rand(20, 55) - rand(20, 55), // leftward bias
     vy: Math.sin(angle) * rand(20, 55),
     pulse: Math.random() * Math.PI * 2,
     age:   0,
-    life:  22,   // longer life than standard pickups — it's rarer
+    life:  44,   // was 22 — doubled
   });
   pushAlert('exotic', '✦ UNSTABLE EXOTIC MATTER DETECTED — FLY OVER TO COLLECT', 'info', 5);
 }
@@ -15840,6 +15882,8 @@ function updateExoticPickups(dt) {
     const p = game.exoticPickups[i];
     p.age   += dt;
     p.pulse += dt * 2.5;
+    // Leftward drift — same direction bias as normal pickups
+    p.vx    -= PICKUP_DRIFT_VX * 0.6 * dt; // slightly gentler on exotic — they're rarer
     p.vx    *= drag;
     p.vy    *= drag;
     p.x     += p.vx * dt;
@@ -15860,6 +15904,7 @@ function updateExoticPickups(dt) {
       }
       game.scienceInventory.exoticMatterCount++;
       fieldStudyGain('LOGISTICAL', FS_GAINS.exotic_pickup);
+      if (typeof CLAIRE !== 'undefined') CLAIRE._logEvent('[EXOTIC] Unstable exotic matter secured. Logged under "things I cannot fully explain."', 'log-anomaly');
       for (let k = 0; k < 10; k++) {
         game.particles.push({
           x: p.x + rand(-8, 8), y: p.y + rand(-8, 8),
@@ -23476,12 +23521,20 @@ function _awardScienceReward(emphasis) {
     pushAlert('sci-reward-' + emphasis,
       `⚗ ${emphasis} BREAKTHROUGH — ${reward.name} ACQUIRED`,
       'breakthrough', 7);
+    if (typeof CLAIRE !== 'undefined') {
+      const _tcls = {OFFENSIVE:'log-arty',DEFENSIVE:'log-research',LOGISTICAL:'log-logistics',SYSTEMS:'log-anomaly'};
+      CLAIRE._logEvent(`[${emphasis}] BREAKTHROUGH — ${reward.name} acquired.`, _tcls[emphasis] || 'log-logistics');
+    }
 
   } else if (reward.type === 'fragile') {
     game.scienceInventory.modules.push({ key: reward.key, name: reward.name });
     pushAlert('sci-reward-' + emphasis,
       `⚗ ${emphasis} BREAKTHROUGH — ${reward.name} BLUEPRINT ACQUIRED`,
       'breakthrough', 7);
+    if (typeof CLAIRE !== 'undefined') {
+      const _tcls = {OFFENSIVE:'log-arty',DEFENSIVE:'log-research',LOGISTICAL:'log-logistics',SYSTEMS:'log-anomaly'};
+      CLAIRE._logEvent(`[${emphasis}] BREAKTHROUGH — ${reward.name} blueprint acquired.`, _tcls[emphasis] || 'log-logistics');
+    }
 
   } else if (reward.type === 'blueprint') {
     // Fab Bay blueprint unlock — makes the item available to queue in the Fab Bay
@@ -23491,6 +23544,10 @@ function _awardScienceReward(emphasis) {
     pushAlert('sci-reward-' + emphasis,
       `⚗ ${emphasis} BREAKTHROUGH — ${reward.name} FAB BLUEPRINT UNLOCKED`,
       'breakthrough', 7);
+    if (typeof CLAIRE !== 'undefined') {
+      const _tcls = {OFFENSIVE:'log-arty',DEFENSIVE:'log-research',LOGISTICAL:'log-logistics',SYSTEMS:'log-anomaly'};
+      CLAIRE._logEvent(`[${emphasis}] BREAKTHROUGH — ${reward.name} fab blueprint unlocked.`, _tcls[emphasis] || 'log-research');
+    }
   }
 
   if (typeof _renderSlInventory       === 'function') _renderSlInventory();
@@ -23681,6 +23738,7 @@ function dropSatellite() {
   game.satellites.push(sat);
   game.shipSatelliteInventory = null;
   fieldStudyGain('SYSTEMS', FS_GAINS.satellite_deploy);
+  if (typeof CLAIRE !== 'undefined') CLAIRE._logEvent('[ASSET DEPLOYED] ' + (_SAT_SHORT[type] || type) + ' satellite active. Added to manifest.', 'log-logistics');
   toast('SATELLITE DEPLOYED: ' + (_SAT_SHORT[type] || type));
 }
 
@@ -23816,6 +23874,7 @@ function updateSatellitesAI(dt) {
         px.color = p % 3 === 0 ? '#ffd54f' : p % 3 === 1 ? '#ff8f00' : '#fff';
       }
       toast('SATELLITE DESTROYED: ' + (_SAT_SHORT[s.type] || s.type));
+      if (typeof CLAIRE !== 'undefined') CLAIRE._logEvent('[ASSET LOST] ' + (_SAT_SHORT[s.type] || s.type) + ' satellite destroyed. Removed from manifest.', 'log-damage');
       fieldStudyGain('SYSTEMS', FS_GAINS.satellite_lost);
       game._satHudDirty = true;
       if (game.fabAutoBuild && !game.fabBuildQueue && !game.inCrisisRepairs) {
@@ -25457,7 +25516,9 @@ document.getElementById('pm-volume').addEventListener('input',e=>{
 
   if(isTouch){
     if(lbl) lbl.style.display = '';
-    const saved = parseInt(localStorage.getItem('rtb_joy_size') || '120', 10);
+    const _rawSaved = parseInt(localStorage.getItem('rtb_joy_size') || '120', 10);
+    const saved = Math.min(_rawSaved, 120); // clamp stale XL to Medium default
+    if (_rawSaved !== saved) { try { localStorage.setItem('rtb_joy_size', saved); } catch(e){} }
     slider.value = saved;
     applyJoySize(saved);
     slider.addEventListener('input', e => {
@@ -25864,9 +25925,8 @@ document.getElementById('dev-chaos-mode').addEventListener('click', () => {
     game._siegeTimeAway = game._siegeEntitySpawnAt + 1;
     spawnSiegeEntity();
   }
-  // Spawn a random anomaly at colony edge
-  const _kinds = ['well','zone','debris'];
-  _devSpawnAnomaly(_kinds[Math.floor(Math.random() * _kinds.length)]);
+  // Spawn a gravity well — zone/debris are WIP and murder performance
+  _devSpawnAnomaly('well');
   // Drain resources to add pressure
   game.salvage = Math.min(game.salvage, 50);
   pushAlert('chaos', '⚠ CHAOS MODE — GOOD LUCK', 'threat', 6);
